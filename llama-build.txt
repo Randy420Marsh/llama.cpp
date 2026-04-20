@@ -1,0 +1,27 @@
+cd /home/john/AI/llama.cpp/
+
+rm -rf build
+
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DGGML_CUDA_FA_ALL_QUANTS=ON -DGGML_CUDA_FORCE_MMQ=ON -DGGML_CUDA_FORCE_CUBLAS=OFF -DGGML_CUDA_PEER_MAX_BATCH_SIZE=128 -DCMAKE_CUDA_ARCHITECTURES="75" -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.1/bin/nvcc -DCMAKE_INSTALL_RPATH="/usr/local/cuda-13.1/lib64;\$ORIGIN" -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DCMAKE_CXX_FLAGS="-march=native -mtune=native -fomit-frame-pointer -flto"
+
+cmake --build build --config Release --parallel 8
+
+
+After the build finishes
+Test that vision works:
+
+from llama_cpp import Llama
+llm = Llama(
+    model_path="/media/john/A024FBBA24FB9210/LLAMA_GGUF/Gemma-4-E2B-Uncensored-HauhauCS-Aggressive-IQ3_M.gguf",
+    mmproj_path="/media/john/A024FBBA24FB9210/LLAMA_GGUF/mmproj-Gemma-4-E2B-Uncensored-HauhauCS-Aggressive-f16.gguf",
+    n_gpu_layers=-1,
+    verbose=False
+)
+print("✅ Vision support OK")
+
+
+
+(Optional) Make the build even faster next time
+If you only change Python code or want to reuse the build, you can add this flag to CMAKE_ARGS:
+Bash-DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=... -DLLAMA_CMAKE_BUILD=ON
+
