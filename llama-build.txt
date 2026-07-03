@@ -4,7 +4,18 @@ rm -rf build
 
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DGGML_CUDA_FA_ALL_QUANTS=ON -DGGML_CUDA_FORCE_MMQ=ON -DGGML_CUDA_FORCE_CUBLAS=OFF -DGGML_CUDA_PEER_MAX_BATCH_SIZE=128 -DCMAKE_CUDA_ARCHITECTURES="75" -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.1/bin/nvcc -DCMAKE_INSTALL_RPATH="/usr/local/cuda-13.1/lib64;\$ORIGIN" -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DCMAKE_CXX_FLAGS="-march=native -mtune=native -fomit-frame-pointer -flto"
 
-cmake --build build --config Release --parallel 8
+Windows:
+build openssl if need and:
+
+https://github.com/Randy420Marsh/llama.cpp/blob/master/docs/build.md#cuda
+
+"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x86_amd64
+
+rmdir /S build
+
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DGGML_CUDA_FA_ALL_QUANTS=ON -DGGML_CUDA_FORCE_MMQ=ON -DGGML_CUDA_FORCE_CUBLAS=OFF -DGGML_CUDA_PEER_MAX_BATCH_SIZE=128 -DCMAKE_CUDA_ARCHITECTURES="75;120" -DGGML_CUDA_ENABLE_UNIFIED_MEMORY=1 -DOPENSSL_ROOT_DIR="C:\Program Files\OpenSSL"
+
+cmake --build build --config Release --parallel 24
 
 
 After the build finishes
