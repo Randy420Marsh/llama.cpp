@@ -1,5 +1,8 @@
 #include "log.h"
 
+// Needed for newest MSVC toolchains (build fails else on 14.44+)
+#include <chrono>
+
 #include <condition_variable>
 #include <cstdarg>
 #include <cstdio>
