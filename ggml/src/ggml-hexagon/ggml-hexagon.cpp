@@ -3180,6 +3180,10 @@ static bool ggml_hexagon_supported_argsort(const struct ggml_hexagon_session * s
 static bool ggml_hexagon_supported_rope(const struct ggml_hexagon_session * sess, const struct ggml_tensor * op) {
     const int32_t * op_params = &op->op_params[0];
 
+    if (op_params[15] != 0) {
+        return false; // FIXME: support ggml_rope_set_offset
+    }
+
     int mode = op_params[2];
 
     // n_dims == ne0/2, so the rotation spans the full row
@@ -3279,6 +3283,35 @@ static bool ggml_hexagon_supported_ssm_conv(const struct ggml_hexagon_session * 
     return true;
 
     GGML_UNUSED(sess);
+}
+
+static bool ggml_hexagon_supported_im2col(const struct ggml_hexagon_session * sess, const struct ggml_tensor * op) {
+    const struct ggml_tensor * src1 = op->src[1];
+    const struct ggml_tensor * dst  = op;
+
+    const bool is_2D = ((const int32_t *) op->op_params)[6] == 1;
+    if (!is_2D) {
+        return false;
+    }
+
+    // For now support F32->F32 and F32->F16 only.
+    if (src1->type != GGML_TYPE_F32 || (dst->type != GGML_TYPE_F16 && dst->type != GGML_TYPE_F32)) {
+        return false;
+    }
+
+    if (!ggml_is_contiguous(src1) || !ggml_is_contiguous(dst)) {
+        return false;
+    }
+
+    // For now keep padded OPs on CPU. Will revisit once we expand coverage past patch-embed OPs.
+    const int32_t p0 = ((const int32_t *) op->op_params)[2];
+    const int32_t p1 = ((const int32_t *) op->op_params)[3];
+    if (p0 != 0 || p1 != 0) {
+        return false;
+    }
+
+    GGML_UNUSED(sess);
+    return true;
 }
 
 static bool ggml_hexagon_supported_pad(const struct ggml_hexagon_session * sess, const struct ggml_tensor * op) {
@@ -3430,6 +3463,7 @@ static htp_op_code op_remap_to_htp(const ggml_tensor * t) {
         case GGML_OP_SOLVE_TRI:       return HTP_OP_SOLVE_TRI;
         case GGML_OP_TRI:             return HTP_OP_TRI;
         case GGML_OP_PAD:             return HTP_OP_PAD;
+        case GGML_OP_IM2COL:          return HTP_OP_IM2COL;
 
         case GGML_OP_UNARY:
             switch (ggml_get_unary_op(t)) {
@@ -3900,6 +3934,7 @@ static void ggml_backend_hexagon_device_get_props(ggml_backend_dev_t dev, struct
         /* .host_buffer           = */ (bool) opt_hostbuf,
         /* .buffer_from_host_ptr  = */ false,
         /* .events                = */ false,
+        /* .mmap_support          = */ false,
     };
 }
 
@@ -4150,6 +4185,10 @@ static bool ggml_backend_hexagon_device_supports_op(ggml_backend_dev_t dev, cons
 
         case GGML_OP_SSM_CONV:
             supp = ggml_hexagon_supported_ssm_conv(sess, op);
+            break;
+
+        case GGML_OP_IM2COL:
+            supp = ggml_hexagon_supported_im2col(sess, op);
             break;
 
         case GGML_OP_GATED_DELTA_NET:
