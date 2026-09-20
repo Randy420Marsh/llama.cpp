@@ -4608,6 +4608,7 @@ static json get_res_props(const server_context_meta & meta, const common_params 
 
     std::string tmpl_default = common_chat_templates_source(meta.chat_params.tmpls.get(), "");
     std::string tmpl_tools   = common_chat_templates_source(meta.chat_params.tmpls.get(), "tool_use");
+    json reasoning_efforts = json(common_chat_templates_get_reasoning_efforts(meta.chat_params.tmpls.get()));
 
     json props = {
         { "default_generation_settings", default_generation_settings_for_props },
@@ -4628,6 +4629,7 @@ static json get_res_props(const server_context_meta & meta, const common_params 
         { "ui_settings",                 meta.json_ui_settings },
         { "chat_template",               tmpl_default },
         { "chat_template_caps",          meta.chat_template_caps },
+        { "reasoning_efforts",           reasoning_efforts },
         { "bos_token",                   meta.bos_token_str },
         { "eos_token",                   meta.eos_token_str },
         { "build_info",                  meta.build_info },

@@ -1,5 +1,9 @@
 # Instructions for llama.cpp
 
+## Local processes
+
+- Do NOT kill a running server (llama-server or any process the user started) without asking first. If a rebuild is blocked by a locked binary, prompt the user, then capture its command line, rebuild, and restart it with the same arguments.
+
 > [!IMPORTANT]
 >
 > AI-generated code is allowed. What is **not** allowed is submitting code you do not understand. You are 100% responsible for every line, however it was produced.

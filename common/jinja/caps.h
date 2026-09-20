@@ -4,6 +4,7 @@
 
 #include <string>
 #include <map>
+#include <vector>
 
 namespace jinja {
 
@@ -18,6 +19,8 @@ struct caps {
 
     // supports reasoning effort levels
     bool supports_reasoning_effort = false;
+    // accepted effort levels, in ladder order (empty if not supported)
+    std::vector<std::string> reasoning_efforts;
 
     // one of the 2 content capabilities must be true
     bool supports_string_content = true;

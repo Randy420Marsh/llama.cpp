@@ -104,6 +104,16 @@ std::string caps::to_string() const {
     for (const auto & [key, value] : to_map()) {
         ss << "  " << key << "=" << (value ? "true" : "false") << "\n";
     }
+    if (!reasoning_efforts.empty()) {
+        ss << "  reasoning_efforts=[";
+        for (size_t i = 0; i < reasoning_efforts.size(); ++i) {
+            if (i > 0) {
+                ss << ", ";
+            }
+            ss << reasoning_efforts[i];
+        }
+        ss << "]\n";
+    }
     ss << ")";
     return ss.str();
 }
@@ -564,6 +574,38 @@ caps caps_get(jinja::program & prog) {
             result.supports_reasoning_effort = effort->stats.used;
         }
     );
+
+    // probe which effort levels the template accepts: a level is accepted if the
+    // template does not raise on it
+    if (result.supports_reasoning_effort) {
+        static const std::vector<std::string> effort_ladder = { "none", "minimal", "low", "medium", "high", "xhigh", "max" };
+        for (const auto & level : effort_ladder) {
+            bool accepted = false;
+            caps_try_execute(
+                prog,
+                [&]() {
+                    // messages
+                    return json::array({
+                        {
+                            {"role", "user"},
+                            {"content", "User message"}
+                        },
+                    });
+                },
+                [&](context & ctx) {
+                    ctx.set_val("enable_thinking", mk_val<value_bool>(true));
+                    caps_apply_reasoning_effort(ctx, level);
+                },
+                nullptr, // tools_fn
+                [&](context &, bool success, value &, value &, const std::string &) {
+                    accepted = success;
+                }
+            );
+            if (accepted) {
+                result.reasoning_efforts.push_back(level);
+            }
+        }
+    }
 
     JJ_DEBUG("%s\n", result.to_string().c_str());
 
