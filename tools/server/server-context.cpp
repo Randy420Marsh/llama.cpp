@@ -734,6 +734,65 @@ struct server_slot {
     }
 };
 
+// tokens mtmd produces for one w x h image; a placeholder bitmap is only preprocessed, never encoded
+static int mtmd_image_n_tokens(mtmd_context * mctx, uint32_t w, uint32_t h) {
+    mtmd::bitmap bmp(mtmd_bitmap_init(w, h, nullptr));
+    const std::string marker = get_media_marker();
+    mtmd_input_text txt = { marker.data(), marker.size(), /* add_special */ false, /* parse_special */ true };
+    mtmd::input_chunks chunks(mtmd_input_chunks_init());
+    const mtmd_bitmap * bmps[] = { bmp.ptr.get() };
+    if (mtmd_tokenize(mctx, chunks.ptr.get(), &txt, bmps, 1) != 0) {
+        return -1;
+    }
+    size_t n = 0;
+    for (size_t i = 0; i < mtmd_input_chunks_size(chunks.ptr.get()); i++) {
+        const mtmd_input_chunk * c = mtmd_input_chunks_get(chunks.ptr.get(), i);
+        if (mtmd_input_chunk_get_type(c) == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+            n += mtmd_input_chunk_get_n_tokens(c);
+        }
+    }
+    return (int) n;
+}
+
+// video/audio settings for chat requests; plain data, safe to keep across sleep/resume
+static server_media_config make_media_config(mtmd_context * mctx, const common_params & params) {
+    server_media_config cfg;
+    cfg.ffmpeg_bin_dir     = params.video_ffmpeg_bin_dir;
+    cfg.media_path         = params.media_path;
+    cfg.asr_url            = params.asr_url;
+    cfg.asr_model          = params.asr_model;
+    cfg.asr_language       = params.asr_language;
+    cfg.video_fps          = params.video_fps;
+    cfg.video_min_fps      = params.video_min_fps;
+    cfg.video_detail       = params.video_detail;
+    cfg.video_max_tokens   = params.video_max_tokens;
+    cfg.video_max_frames   = params.video_max_frames;
+    cfg.video_dedup        = params.video_dedup;
+    cfg.audio_native_max_s = params.audio_native_max_s;
+    if (!mctx) {
+        return cfg;
+    }
+    cfg.video_supported  = mtmd_helper_support_video(mctx);
+    cfg.audio_native     = mtmd_support_audio(mctx);
+    cfg.n_temporal_merge = mtmd_get_n_temporal_merge(mctx);
+    if (mtmd_support_vision(mctx)) {
+        // token cost per pixel from a small probe; a large probe that falls short of it reveals a token cap
+        // (e.g. --image-max-tokens); the video planner uses both to size frames and fps
+        const int small = mtmd_image_n_tokens(mctx, 512, 288);
+        const int large = mtmd_image_n_tokens(mctx, 1920, 1088);
+        if (small > 0) {
+            cfg.image_tokens_per_pixel = (double) small / (512.0 * 288.0);
+            if (large > 0 && large < 0.9 * cfg.image_tokens_per_pixel * 1920.0 * 1088.0) {
+                cfg.image_tokens_cap = large;
+            }
+        }
+        SRV_INF("video: image tokens 512x288=%d 1920x1088=%d, temporal merge %d, audio %s, transcripts %s\n",
+                small, large, cfg.n_temporal_merge, cfg.audio_native ? "native" : "none",
+                cfg.asr_url.empty() ? "off" : cfg.asr_url.c_str());
+    }
+    return cfg;
+}
+
 // returns 0 on success
 // caller need to update prompt.tokens after a successful call to keep track of the processing progress
 // note: this is not a member of server_slot because we want to run it inside yield_to_queue
@@ -1170,6 +1229,7 @@ private:
             init_opt.video_params.timestamp_interval_ms = params_base.video_timestamp_interval_ms;
             init_opt.video_params.ffmpeg_bin_dir = params_base.video_ffmpeg_bin_dir.empty()
                                 ? nullptr : params_base.video_ffmpeg_bin_dir.c_str();
+            init_opt.video_params.dedup_threshold = params_base.video_dedup;
 
             if (params_base.ctx_shift) {
                 params_base.ctx_shift = false;
@@ -1488,6 +1548,7 @@ private:
                 /* media_path            */ params_base.media_path,
                 /* force_pure_content    */ params_base.force_pure_content_parser
             };
+            chat_params.media = make_media_config(mctx, params_base);
 
             {
                 auto caps = common_chat_templates_get_caps(chat_params.tmpls.get());
@@ -4194,7 +4255,7 @@ server_context_meta server_context::get_meta() const {
         /* model_path             */ impl->params_base.model.path,
         /* has_mtmd               */ impl->mctx != nullptr,
         /* has_inp_image          */ impl->chat_params.allow_image,
-        /* has_inp_audio          */ impl->chat_params.allow_audio,
+        /* has_inp_audio          */ impl->chat_params.allow_audio || !impl->chat_params.media.asr_url.empty(), // --asr-url transcribes it
         /* has_inp_video          */ impl->chat_params.allow_video,
         /* json_ui_settings       */ impl->json_ui_settings,
         /* slot_n_ctx             */ impl->n_ctx_slot(),

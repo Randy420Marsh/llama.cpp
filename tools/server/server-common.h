@@ -7,6 +7,7 @@
 #include "mtmd.h"
 #include "mtmd-helper.h"
 #include "subproc.h"
+#include "server-media.h"
 
 #include "json.h"
 
@@ -319,7 +320,11 @@ struct server_chat_params {
     std::string reasoning_budget_message;
     std::string media_path;
     bool force_pure_content = false;
+    server_media_config media; // video/audio preparation for chat requests (see server-media.h)
 };
+
+// base64 (without a data: prefix) to bytes, for media payloads
+raw_buffer base64_decode_media(const std::string & encoded);
 
 // used by /completions endpoint
 json oaicompat_completion_params_parse(const json & body);

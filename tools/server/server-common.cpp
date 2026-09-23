@@ -277,6 +277,10 @@ static inline raw_buffer base64_decode(const std::string & encoded_string) {
     return ret;
 }
 
+raw_buffer base64_decode_media(const std::string & encoded) {
+    return base64_decode(encoded);
+}
+
 //
 // server_tokens implementation
 //
@@ -1233,6 +1237,9 @@ json oaicompat_chat_params_parse(
             throw std::invalid_argument("Expected 'content' to be a string or an array");
         }
 
+        // video and audio parts expand into several parts (segment headers, clips, native audio,
+        // transcripts), so the content array is rebuilt
+        json rebuilt = json::array();
         for (auto & p : content) {
             std::string type = json_value(p, "type", std::string());
             if (type == "image_url") {
@@ -1247,42 +1254,23 @@ json oaicompat_chat_params_parse(
                 p["type"] = "media_marker";
                 p["text"] = get_media_marker();
                 p.erase("image_url");
+                rebuilt.push_back(p);
 
-            } else if (type == "input_audio") {
-                if (!opt.allow_audio) {
-                    throw std::runtime_error("audio input is not supported - hint: if this is unexpected, you may need to provide the mmproj");
-                }
-
-                // note: don't need to validate "format", it's redundant
-                json input_audio = json_value(p, "input_audio", json::object());
-                std::string url  = json_value(input_audio, "data",
-                                        json_value(input_audio, "url", std::string()));
-                handle_media(out_files, url, opt.media_path);
-
-                p["type"] = "media_marker";
-                p["text"] = get_media_marker();
-                p.erase("input_audio");
+            } else if (type == "input_audio" || type == "audio_url") {
+                // native audio when the mmproj has an audio encoder, else a speech-to-text transcript (--asr-url)
+                rebuilt.insert(server_media_audio_part(p, opt.media, out_files));
 
             } else if (type == "input_video" || type == "video_url") {
-                if (!opt.allow_video) {
-                    throw std::runtime_error("video input is not supported - hint: if this is unexpected, you may need to provide the mmproj");
-                }
+                // seek/stream the requested segments into budgeted in-memory clips, plus their audio
+                rebuilt.insert(server_media_video_part(p, opt.media, out_files));
 
-                // accept the OpenAI-style "video_url" key as an alias of "input_video"
-                json input_video = json_value(p, type, json::object());
-                std::string url  = json_value(input_video, "data",
-                                        json_value(input_video, "url", std::string()));
-                handle_media(out_files, url, opt.media_path);
-
-                p["type"] = "media_marker";
-                p["text"] = get_media_marker();
-                p.erase("input_video");
-                p.erase("video_url");
-
-            } else if (type != "text") {
+            } else if (type == "text") {
+                rebuilt.push_back(p);
+            } else {
                 throw std::invalid_argument("unsupported content[].type");
             }
         }
+        content = rebuilt;
     }
 
     auto caps = common_chat_templates_get_caps(opt.tmpls.get());

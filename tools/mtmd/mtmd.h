@@ -153,6 +153,10 @@ MTMD_API bool mtmd_support_audio(const mtmd_context * ctx);
 // return -1 if audio is not supported
 MTMD_API int mtmd_get_audio_sample_rate(const mtmd_context * ctx);
 
+// number of consecutive video frames merged into one temporal patch (2 for qwen-vl style models)
+// return 1 if the model does not merge frames or has no vision encoder
+MTMD_API int mtmd_get_n_temporal_merge(const mtmd_context * ctx);
+
 // get the current marker string
 MTMD_API const char * mtmd_get_marker(const mtmd_context * ctx);
 

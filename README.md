@@ -17,6 +17,36 @@
 
 </div>
 
+## This fork: video and audio in llama-server
+
+`llama-server` in this fork accepts `video_url` / `input_video` and `input_audio` / `audio_url` parts
+in chat requests. Video can come from HTTP(S), from `file://` paths under `--media-path`, or as inline
+base64. The main additions:
+
+- **Time ranges:** pick one or more ranges with `start` / `end` / `segments`. Only those parts are
+  decoded, and for URLs only those parts are downloaded.
+- **Budget:** each video part has a token budget (`max_tokens`, `--video-max-tokens`). The frame rate
+  drops to fit it and the resolution stays at the chosen `detail`. A 60 s 1080p video costs 35k tokens
+  instead of 247k.
+- **Readable frames:** `detail` presets `low` / `standard` / `high` / `max` are calibrated so on-screen
+  text stays readable. Frame pairs with no change are dropped (`--video-dedup`).
+- **Source time:** frames and transcript lines carry timestamps from the original file.
+- **Audio:** the model's own audio encoder where it has one; otherwise timestamped transcripts from an
+  OpenAI-compatible speech-to-text server (`--asr-url`). A ready-made one ships in
+  [tools/asr-server/](tools/asr-server/) (faster-whisper, `run.bat` / `run.sh` launcher).
+- **Clients:** works from the web UI and the OpenAI endpoint, with reasoning on or off. Verified on
+  Qwen3.8-27B, Gemma4-12B, Gemma4-26B-A4B and Nemotron-3-Nano-Omni.
+
+```json
+{"type": "video_url", "video_url": {"url": "file://talk.mp4",
+  "segments": [{"start": "01:00:00", "end": "01:05:00"}], "detail": "high", "audio": "transcript"}}
+```
+
+Guide, options, tested models and internals: [wiki/Home.md](wiki/Home.md), with the full guide in
+[wiki/Video-and-Audio.md](wiki/Video-and-Audio.md). Flags and request fields are also listed in
+[tools/server/README.md](tools/server/README.md). Build settings (Windows CUDA with OpenSSL, Ubuntu) and
+the run-time requirements (ffmpeg, the speech-to-text server) are in [wiki/Building.md](wiki/Building.md).
+
 ## Quick start
 
 A few options to get `llama.cpp` installed on your machine:

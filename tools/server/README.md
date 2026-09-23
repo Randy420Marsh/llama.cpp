@@ -183,7 +183,16 @@ For the full list of features, please refer to [server's changelog](https://gith
 | `--image-min-tokens N` | minimum number of tokens each image can take, only used by vision models with dynamic resolution (default: read from model)<br/>(env: LLAMA_ARG_IMAGE_MIN_TOKENS) |
 | `--image-max-tokens N` | maximum number of tokens each image can take, only used by vision models with dynamic resolution (default: read from model)<br/>(env: LLAMA_ARG_IMAGE_MAX_TOKENS) |
 | `--mtmd-batch-max-tokens N` | maximum number of image tokens per batch when encoding images (default: 1024)<br/>(env: LLAMA_ARG_MTMD_BATCH_MAX_TOKENS) |
-| `--video-fps N` | target video frame rate (default: 4.0)<br/>(env: LLAMA_ARG_VIDEO_FPS) |
+| `--video-fps N` | video sampling rate in frames per second; in the server also the most a request may ask for (default: 2.0)<br/>(env: LLAMA_ARG_VIDEO_FPS) |
+| `--video-detail LEVEL` | default video frame resolution for chat requests: low (~256 tokens/frame), standard (~576, 20px text on 1080p stays readable), high (~1024), max (~2048, fine UI text) (default: standard)<br/>(env: LLAMA_ARG_VIDEO_DETAIL) |
+| `--video-max-tokens N` | token budget per video part in chat requests; the frame rate is lowered to fit, and requests may only lower it (default: 32768)<br/>(env: LLAMA_ARG_VIDEO_MAX_TOKENS) |
+| `--video-max-frames N` | maximum frames per video part in chat requests; requests may only lower it (default: 768)<br/>(env: LLAMA_ARG_VIDEO_MAX_FRAMES) |
+| `--video-min-fps N` | lowest frame rate a video part may be thinned to; longer ranges are rejected (default: 0.05)<br/>(env: LLAMA_ARG_VIDEO_MIN_FPS) |
+| `--video-dedup N` | drop repeated video frames: a frame (group) is kept only if some region of it changed by at least N luma levels (0-255) since the last kept one; 0 = off (default: 4.0)<br/>(env: LLAMA_ARG_VIDEO_DEDUP) |
+| `--asr-url URL` | OpenAI-compatible speech-to-text server (POST /v1/audio/transcriptions) used to transcribe audio and the audio track of videos for models without an audio encoder, e.g. http://127.0.0.1:8178 (default: disabled)<br/>(env: LLAMA_ARG_ASR_URL) |
+| `--asr-model NAME` | model name sent to the speech-to-text server (default: server default)<br/>(env: LLAMA_ARG_ASR_MODEL) |
+| `--asr-language LANG` | default spoken language for transcripts, e.g. en, zh (default: auto-detect)<br/>(env: LLAMA_ARG_ASR_LANGUAGE) |
+| `--audio-native-max-seconds N` | with an audio-capable mmproj, audio longer than this is transcribed instead (needs --asr-url) (default: 600)<br/>(env: LLAMA_ARG_AUDIO_NATIVE_MAX_SECONDS) |
 | `--video-timestamp-interval N` | interval in milliseconds between text timestamps (default: 5000)<br/>(env: LLAMA_ARG_VIDEO_TIMESTAMP_INTERVAL) |
 | `--video-ffmpeg-dir DIR` | path to the directory containing ffmpeg and ffprobe (default: search in PATH)<br/>(env: LLAMA_ARG_VIDEO_FFMPEG_DIR) |
 | `-a, --alias STRING` | set model name aliases, comma-separated (to be used by API)<br/>(env: LLAMA_ARG_ALIAS) |
@@ -1333,14 +1342,36 @@ For multimodal input (typed content, `messages[i].content[j]`):
 - If `type == "image_url"`:
     - `image_url.url` can be a remote URL, base64 (raw or URI-encoded via `data:image/...;base64`) or path to local file
     - Accepts formats supported by `stb_image` (jpeg, png, tga, bmp, gif, ...)
-- If `type == "input_audio"`:
+- If `type == "input_audio"` (or `audio_url`):
     - Either `input_audio.data` or `input_audio.url` can be specified, can be a remote URL, raw base64 or path to local file
-    - Accepts formats supported by `miniaudio` (mp3, wav, flac)
+    - Accepts formats supported by `miniaudio` (mp3, wav, flac), and any `ffmpeg` format when ffmpeg is available
     - `input_audio.format` will be ignored, the file format will be determined automatically
-- If `type == "input_video"`:
+    - With a model audio encoder the audio goes to the model; otherwise, with `--asr-url`, it becomes a timestamped transcript. `audio: "native" | "transcript" | "auto"` selects this per part
+- If `type == "input_video"` (or `video_url`):
     - Either `input_video.data` or `input_video.url` can be specified, can be a remote URL, raw base64 or path to local file
     - Accepts formats supported by `ffmpeg`
+    - Remote URLs are streamed with HTTP range requests, so only the requested ranges of a long video are downloaded
+    - Optional fields next to the URL/data select what the model sees:
+        - `start`, `end`, `duration`: one range, in seconds or `[hh:]mm:ss[.f]`; `segments`: several ranges, each `{start, end}` or `{start, duration}`
+        - `fps`: sampling rate (at most `--video-fps`); `detail`: `low` / `standard` / `high` / `max` (256 / 576 / 1024 / 2048 tokens per frame, or per frame pair on models that merge two frames such as Qwen-VL) or a number; `standard` keeps 20 px text on a 1080p source readable
+        - `max_tokens`, `max_frames`: per-part budget, may only lower `--video-max-tokens` / `--video-max-frames`. The frame rate drops to fit, down to `--video-min-fps`; longer ranges are rejected with a message giving the longest range that fits
+        - `audio`: `auto` (default: transcript when `--asr-url` is set, else native audio if the model has an audio encoder), `transcript`, `native`, `both`, `none`; `language`: transcript language hint
+    - Frame timestamps and transcript lines are in source time, so a segment 5 h into a file is described at 18000 s; frame pairs where no screen region changed (`--video-dedup`) are dropped
 - Note: for local file, make sure to set `--media-path`. File path must be prefixed by `file://`
+- Only plain container formats are opened for audio/video; playlist, concat and image-sequence inputs are refused
+
+A full guide covering the web UI, budgets, how to ask, the speech-to-text setup and the tested models is in
+[wiki/Video-and-Audio.md](../../wiki/Video-and-Audio.md).
+
+Example, two 12-second ranges of a 12-hour recording at high detail with a transcript:
+
+```json
+{"type": "video_url", "video_url": {
+  "url": "file://recordings/day.mp4",
+  "segments": [{"start": "05:00:00", "end": "05:00:12"}, {"start": "10:30:00", "duration": 12}],
+  "detail": "high", "audio": "transcript"
+}}
+```
 
 *Examples:*
 

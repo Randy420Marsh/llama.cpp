@@ -27,8 +27,12 @@ struct mtmd_helper_video_init_params {
     float fps_target;            // desired output fps; <= 0 means use the video's native fps, defaulted to 4.0f
     const char * ffmpeg_bin_dir; // directory containing ffmpeg/ffprobe binaries; NULL means search PATH
     int64_t timestamp_interval_ms; // interval for adding timestamp as text chunk (example: "[10m50.5s]"); <= 0 means no timestamp, defaulted to 5000ms
+                                   // models that merge frames temporally (qwen-vl) instead get their native "<12.5 seconds>" text before every merged frame group
+    float dedup_threshold;       // drop a frame group if no region of it changed by this much luma (0-255) since the last kept group; <= 0 disables, defaulted to 0
+    float dedup_max_gap_s;       // keep at least one frame group per this many seconds even when nothing changes, defaulted to 10
     // TODO @ngxson : allow "placeholder" bitmap output for counting tokens
 };
+// timestamps are absolute: the stream start time of the container (for example set with ffmpeg -output_ts_offset) is added
 
 MTMD_API struct mtmd_helper_video_init_params mtmd_helper_video_init_params_default(void);
 

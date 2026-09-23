@@ -2654,11 +2654,85 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
     ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_MTMD_BATCH_MAX_TOKENS"));
     add_opt(common_arg(
         {"--video-fps"}, "N",
-        string_format("target video frame rate (default: %.1f)", params.video_fps),
+        string_format("video sampling rate in frames per second; in the server also the most a request may ask for (default: %.1f)", params.video_fps),
         [](common_params & params, const std::string & value) {
             params.video_fps = std::stof(value);
         }
     ).set_examples(mmproj_examples).set_env("LLAMA_ARG_VIDEO_FPS"));
+    add_opt(common_arg(
+        {"--video-detail"}, "LEVEL",
+        string_format("default video frame resolution for chat requests: low (~256 tokens/frame), standard (~576, 20px text on 1080p stays readable), "
+                      "high (~1024), max (~2048, fine UI text) (default: %s)", params.video_detail.c_str()),
+        [](common_params & params, const std::string & value) {
+            if (value != "low" && value != "standard" && value != "high" && value != "max") {
+                throw std::invalid_argument("--video-detail must be low, standard, high or max");
+            }
+            params.video_detail = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_VIDEO_DETAIL"));
+    add_opt(common_arg(
+        {"--video-max-tokens"}, "N",
+        string_format("token budget per video part in chat requests; the frame rate is lowered to fit, and requests may only lower it (default: %d)", params.video_max_tokens),
+        [](common_params & params, int value) {
+            if (value < 64) {
+                throw std::invalid_argument("--video-max-tokens must be at least 64");
+            }
+            params.video_max_tokens = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_VIDEO_MAX_TOKENS"));
+    add_opt(common_arg(
+        {"--video-max-frames"}, "N",
+        string_format("maximum frames per video part in chat requests; requests may only lower it (default: %d)", params.video_max_frames),
+        [](common_params & params, int value) {
+            if (value < 1) {
+                throw std::invalid_argument("--video-max-frames must be at least 1");
+            }
+            params.video_max_frames = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_VIDEO_MAX_FRAMES"));
+    add_opt(common_arg(
+        {"--video-min-fps"}, "N",
+        string_format("lowest frame rate a video part may be thinned to; longer ranges are rejected (default: %.2f)", params.video_min_fps),
+        [](common_params & params, const std::string & value) {
+            params.video_min_fps = std::stof(value);
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_VIDEO_MIN_FPS"));
+    add_opt(common_arg(
+        {"--video-dedup"}, "N",
+        string_format("drop repeated video frames: a frame (group) is kept only if some region of it changed by at least N luma levels (0-255) since the last kept one; 0 = off (default: %.1f)", params.video_dedup),
+        [](common_params & params, const std::string & value) {
+            params.video_dedup = std::stof(value);
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_VIDEO_DEDUP"));
+    add_opt(common_arg(
+        {"--asr-url"}, "URL",
+        "OpenAI-compatible speech-to-text server (POST /v1/audio/transcriptions) used to transcribe audio and the audio "
+        "track of videos for models without an audio encoder, e.g. http://127.0.0.1:8178 (default: disabled)",
+        [](common_params & params, const std::string & value) {
+            params.asr_url = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_ASR_URL"));
+    add_opt(common_arg(
+        {"--asr-model"}, "NAME",
+        "model name sent to the speech-to-text server (default: server default)",
+        [](common_params & params, const std::string & value) {
+            params.asr_model = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_ASR_MODEL"));
+    add_opt(common_arg(
+        {"--asr-language"}, "LANG",
+        "default spoken language for transcripts, e.g. en, zh (default: auto-detect)",
+        [](common_params & params, const std::string & value) {
+            params.asr_language = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_ASR_LANGUAGE"));
+    add_opt(common_arg(
+        {"--audio-native-max-seconds"}, "N",
+        string_format("with an audio-capable mmproj, audio longer than this is transcribed instead (needs --asr-url) (default: %.0f)", params.audio_native_max_s),
+        [](common_params & params, const std::string & value) {
+            params.audio_native_max_s = std::stof(value);
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_AUDIO_NATIVE_MAX_SECONDS"));
     add_opt(common_arg(
         {"--video-timestamp-interval"}, "N",
         string_format("interval in milliseconds between text timestamps (default: %" PRId64 ")", params.video_timestamp_interval_ms),

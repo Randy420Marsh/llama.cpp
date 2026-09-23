@@ -2204,6 +2204,13 @@ int mtmd_get_audio_sample_rate(const mtmd_context * ctx) {
     return clip_get_hparams(ctx->ctx_a)->audio_sample_rate;
 }
 
+int mtmd_get_n_temporal_merge(const mtmd_context * ctx) {
+    if (!ctx->ctx_v) {
+        return 1;
+    }
+    return std::max(1, clip_model_n_temporal_merge(ctx->ctx_v));
+}
+
 const char * mtmd_get_marker(const mtmd_context * ctx) {
     return ctx->media_marker.c_str();
 }

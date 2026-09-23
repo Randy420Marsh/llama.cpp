@@ -600,9 +600,18 @@ struct common_params {
     int mtmd_batch_max_tokens = 1024;
 
     // for video input
-    float       video_fps                   = 4.0f;
+    float       video_fps                   = 2.0f;  // default and maximum sampling rate (qwen-vl native: 2)
     int64_t     video_timestamp_interval_ms = 5000;
     std::string video_ffmpeg_bin_dir        = "";
+    std::string video_detail                = "standard"; // low | standard | high | max frame resolution
+    int32_t     video_max_tokens            = 32768; // per video part; fps is lowered to fit
+    int32_t     video_max_frames            = 768;
+    float       video_min_fps               = 0.05f; // below this a request is rejected instead of thinned out
+    float       video_dedup                 = 4.0f;  // drop frame groups where no region changed by this much luma (0 = off)
+    std::string asr_url                     = "";    // OpenAI-compatible speech-to-text for models without audio input
+    std::string asr_model                   = "";
+    std::string asr_language                = "";
+    float       audio_native_max_s          = 600.0f; // longer audio goes to the transcript instead (when --asr-url is set)
 
     // finetune
     struct lr_opt lr;

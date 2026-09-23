@@ -41,6 +41,8 @@
 
 #ifdef MTMD_VIDEO
 #include "sheredom/subprocess.h"
+#include <cmath>
+#include <deque>
 #include <thread>
 #ifndef _WIN32
 #include <csignal>
@@ -603,23 +605,50 @@ struct mtmd_helper_video {
     int32_t     timestamp_interval_ms = 5000; // emit a timestamp text every N ms (0 = disabled)
     float       next_timestamp_ms     = 0.0f; // next elapsed-ms threshold at which to emit
 
+    // frames merged into one temporal patch by the model (2 for qwen-vl); timestamps and dedup work per group
+    int32_t n_merge         = 1;
+    double  start_offset_s  = 0.0; // container stream start time, so timestamps are absolute
+    float   dedup_threshold = 0.0f;
+    float   dedup_max_gap_s = 10.0f;
+    std::vector<float> last_kept_luma;
+    double  last_kept_time  = -1e30;
+    int32_t n_groups_kept    = 0;
+    int32_t n_groups_dropped = 0;
+    bool    gap_pending      = false; // groups were dropped since the last kept one
+
+    // items queued to be returned by read_next(): exactly one of bitmap/text is set
+    struct queued_item {
+        mtmd_bitmap * bitmap = nullptr;
+        std::string   text;
+    };
+    std::deque<queued_item> queue;
+
     std::vector<uint8_t> frame_buf;
-    std::string pending_text; // text queued to be returned before the next frame
     bool        start_emitted = false;
+
+    ~mtmd_helper_video() {
+        for (auto & item : queue) {
+            if (item.bitmap) {
+                mtmd_bitmap_free(item.bitmap);
+            }
+        }
+    }
 
     bool is_buf_input() const {
         return !input_buf.empty();
     }
 
     bool probe(float fps_target_arg) {
-        const char * input_arg = is_buf_input() ? "pipe:0" : path.c_str();
+        // cache: makes the stdin pipe seekable, so an MP4 with the index at the end can be probed
+        const char * input_arg = is_buf_input() ? "cache:pipe:0" : path.c_str();
         const char * cmd[] = {
             ffprobe_bin.c_str(),
             "-v", "quiet",
-            "-show_entries", "stream=width,height,r_frame_rate,nb_frames,duration",
+            "-read_ahead_limit", "-1",
+            "-show_entries", "stream=width,height,r_frame_rate,nb_frames,duration,start_time",
             "-select_streams", "v:0",
             "-of", "default=noprint_wrappers=1",
-            input_arg,
+            "-i", input_arg,
             nullptr,
         };
 
@@ -668,6 +697,8 @@ struct mtmd_helper_video {
                 n_frames_orig = atoi(val);
             } else if (strcmp(key, "duration") == 0 && strcmp(val, "N/A") != 0) {
                 duration = (float)atof(val);
+            } else if (strcmp(key, "start_time") == 0 && strcmp(val, "N/A") != 0) {
+                start_offset_s = atof(val);
             }
         }
 
@@ -681,7 +712,8 @@ struct mtmd_helper_video {
             duration = (float)n_frames_orig / orig_fps;
         }
 
-        fps_target = fps_target_arg > 0.0f ? fps_target_arg : orig_fps;
+        // only downsample: a higher rate only repeats frames (server clips may already be below the default rate)
+        fps_target = (fps_target_arg > 0.0f && orig_fps > fps_target_arg * 1.01f) ? fps_target_arg : orig_fps;
         info.width    = width;
         info.height   = height;
         info.fps      = fps_target;
@@ -799,22 +831,111 @@ struct mtmd_helper_video {
         return frame;
     }
 
+    // 64x36 grid of mean luma, used to detect frame groups that repeat the last kept one
+    static std::vector<float> luma_thumbnail(const mtmd_bitmap * bm) {
+        constexpr int GX = 64, GY = 36;
+        const uint32_t nx = mtmd_bitmap_get_nx(bm);
+        const uint32_t ny = mtmd_bitmap_get_ny(bm);
+        const unsigned char * px = mtmd_bitmap_get_data(bm);
+        std::vector<float> sum(GX * GY, 0.0f);
+        std::vector<int>   cnt(GX * GY, 0);
+        for (uint32_t y = 0; y < ny; y += 2) {
+            const int gy = (int)((uint64_t)y * GY / ny);
+            for (uint32_t x = 0; x < nx; x += 2) {
+                const int gx = (int)((uint64_t)x * GX / nx);
+                const unsigned char * p = px + ((size_t)y * nx + x) * 3;
+                sum[gy * GX + gx] += 0.299f * p[0] + 0.587f * p[1] + 0.114f * p[2];
+                cnt[gy * GX + gx]++;
+            }
+        }
+        for (size_t i = 0; i < sum.size(); i++) {
+            sum[i] = cnt[i] ? sum[i] / cnt[i] : 0.0f;
+        }
+        return sum;
+    }
+
+    static std::string format_clock(double t) {
+        // [1h02m03.5s] / [2m03.50s]; absolute source time
+        char buf[48];
+        const int h = (int)(t / 3600.0);
+        const int m = (int)((t - h * 3600.0) / 60.0);
+        const double s = t - h * 3600.0 - m * 60.0;
+        if (h > 0) {
+            snprintf(buf, sizeof(buf), "[%dh%02dm%04.1fs]", h, m, s);
+        } else {
+            snprintf(buf, sizeof(buf), "[%dm%.2fs]", m, s);
+        }
+        return buf;
+    }
+
+    // reads the next group of n_merge frames and queues it (with its timestamp text) unless dedup drops it;
+    // returns false at end of stream
+    bool queue_next_group() {
+        const int32_t first_index = current_frame;
+        std::vector<mtmd_bitmap *> frames;
+        for (int32_t k = 0; k < n_merge; k++) {
+            mtmd_bitmap * f = read_next_frame();
+            if (!f) {
+                break;
+            }
+            frames.push_back(f);
+        }
+        if (frames.empty()) {
+            return false;
+        }
+
+        const double fps          = info.fps > 0.0f ? info.fps : 1.0;
+        const double t_first      = start_offset_s + first_index / fps;
+        // qwen-vl timestamps a merged group by the mean time of its frames
+        const double t_group      = start_offset_s + (first_index + (frames.size() - 1) / 2.0) / fps;
+
+        if (dedup_threshold > 0.0f) {
+            std::vector<float> luma = luma_thumbnail(frames.front());
+            if (!last_kept_luma.empty() && t_first - last_kept_time < dedup_max_gap_s) {
+                // largest change of any region, not the mean: a changed word or digit is a small area
+                float diff = 0.0f;
+                for (size_t i = 0; i < luma.size(); i++) {
+                    diff = std::max(diff, std::fabs(luma[i] - last_kept_luma[i]));
+                }
+                if (diff < dedup_threshold) {
+                    for (auto * f : frames) {
+                        mtmd_bitmap_free(f);
+                    }
+                    n_groups_dropped++;
+                    gap_pending = true;
+                    return true;
+                }
+            }
+            last_kept_luma = std::move(luma);
+            last_kept_time = t_first;
+        }
+
+        if (n_merge > 1) {
+            // qwen-vl video format: "<12.5 seconds>" before each group, never inside it (mtmd only merges adjacent frames)
+            char ts_buf[48];
+            snprintf(ts_buf, sizeof(ts_buf), "<%.1f seconds>", t_group);
+            queue.push_back({nullptr, ts_buf});
+        } else if (timestamp_interval_ms > 0) {
+            const double elapsed_ms = (t_first - start_offset_s) * 1000.0;
+            // after dropped groups the next kept frame always gets a timestamp, so gaps stay visible
+            if (elapsed_ms >= next_timestamp_ms || gap_pending) {
+                queue.push_back({nullptr, format_clock(t_first)});
+                gap_pending = false;
+                while (next_timestamp_ms <= elapsed_ms) {
+                    next_timestamp_ms += (float)timestamp_interval_ms;
+                }
+            }
+        }
+        for (auto * f : frames) {
+            queue.push_back({f, {}});
+        }
+        n_groups_kept++;
+        return true;
+    }
+
     int32_t read_next(mtmd_bitmap ** out_bitmap, char ** out_text) {
         *out_bitmap = nullptr;
         *out_text   = nullptr;
-
-        if (!pending_text.empty()) {
-            *out_text = strdup(pending_text.c_str());
-            pending_text.clear();
-            return *out_text ? 0 : -2;
-        }
-
-        LOG_DBG("%s: proc_alive=%d start_emitted=%d current_frame=%d\n",
-                __func__, (int)sp.alive, (int)start_emitted, current_frame);
-
-        if (!sp.alive) {
-            return (current_frame == 0) ? -2 : -1;
-        }
 
         if (!start_emitted) {
             start_emitted = true;
@@ -824,25 +945,26 @@ struct mtmd_helper_video {
             }
         }
 
-        mtmd_bitmap * frame = read_next_frame();
-        if (!frame) return -1;
-        *out_bitmap = frame;
-
-        if (timestamp_interval_ms > 0) {
-            // current_frame was already incremented by read_next_frame(); undo for elapsed calc
-            float elapsed_ms = (float)(current_frame - 1) / info.fps * 1000.0f;
-            if (elapsed_ms >= next_timestamp_ms) {
-                char ts_buf[32];
-                float elapsed_s = elapsed_ms / 1000.0f;
-                int   minutes   = (int)(elapsed_s / 60);
-                float seconds   = elapsed_s - minutes * 60.0f;
-                snprintf(ts_buf, sizeof(ts_buf), "[%dm%.2fs]", minutes, seconds);
-                pending_text = ts_buf;
-                next_timestamp_ms += (float)timestamp_interval_ms;
+        while (queue.empty()) {
+            LOG_DBG("%s: proc_alive=%d current_frame=%d\n", __func__, (int)sp.alive, current_frame);
+            if (!sp.alive || !queue_next_group()) {
+                if (n_groups_dropped > 0) {
+                    LOG_INF("%s: video dedup kept %d and dropped %d unchanged frame groups\n",
+                            __func__, n_groups_kept, n_groups_dropped);
+                    n_groups_dropped = 0; // log once
+                }
+                return (n_groups_kept == 0) ? -2 : -1;
             }
         }
 
-        return 0;
+        queued_item item = std::move(queue.front());
+        queue.pop_front();
+        if (item.bitmap) {
+            *out_bitmap = item.bitmap;
+            return 0;
+        }
+        *out_text = strdup(item.text.c_str());
+        return *out_text ? 0 : -2;
     }
 
     static float parse_rational(const char * s) {
@@ -864,6 +986,8 @@ mtmd_helper_video_init_params mtmd_helper_video_init_params_default() {
         /* fps_target             */ 4.0f,
         /* ffmpeg_bin_dir         */ nullptr,
         /* timestamp_interval_ms  */ 5000,
+        /* dedup_threshold        */ 0.0f,
+        /* dedup_max_gap_s        */ 10.0f,
     };
 }
 
@@ -936,6 +1060,9 @@ mtmd_helper_video * mtmd_helper_video_init(
     ctx->ffmpeg_bin           = video_resolve_bin(params.ffmpeg_bin_dir, "ffmpeg");
     ctx->ffprobe_bin          = video_resolve_bin(params.ffmpeg_bin_dir, "ffprobe");
     ctx->timestamp_interval_ms = params.timestamp_interval_ms;
+    ctx->n_merge               = mctx ? mtmd_get_n_temporal_merge(mctx) : 1;
+    ctx->dedup_threshold       = params.dedup_threshold;
+    ctx->dedup_max_gap_s       = params.dedup_max_gap_s > 0.0f ? params.dedup_max_gap_s : 10.0f;
 
     if (!ctx->probe(params.fps_target)) {
         LOG_ERR("%s: ffprobe failed for '%s' (is ffprobe in PATH?)\n", __func__, path);
@@ -971,6 +1098,9 @@ mtmd_helper_video * mtmd_helper_video_init_from_buf(
     ctx->ffmpeg_bin            = video_resolve_bin(params.ffmpeg_bin_dir, "ffmpeg");
     ctx->ffprobe_bin           = video_resolve_bin(params.ffmpeg_bin_dir, "ffprobe");
     ctx->timestamp_interval_ms = params.timestamp_interval_ms;
+    ctx->n_merge               = mctx ? mtmd_get_n_temporal_merge(mctx) : 1;
+    ctx->dedup_threshold       = params.dedup_threshold;
+    ctx->dedup_max_gap_s       = params.dedup_max_gap_s > 0.0f ? params.dedup_max_gap_s : 10.0f;
 
     if (!ctx->probe(params.fps_target)) {
         LOG_ERR("%s: ffprobe failed on buffer (is ffprobe in PATH?)\n", __func__);

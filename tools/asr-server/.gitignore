@@ -1,0 +1,5 @@
+venv/
+models/
+__pycache__/
+# the root .gitignore ignores *.bat
+!run.bat
