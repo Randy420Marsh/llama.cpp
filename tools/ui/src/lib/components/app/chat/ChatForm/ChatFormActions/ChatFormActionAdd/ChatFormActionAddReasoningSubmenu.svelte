@@ -25,8 +25,8 @@
 		>
 			Reasoning
 
-			<span class="capitalize text-muted-foreground">
-				{reasoning.currentEffort}
+			<span class="text-muted-foreground">
+				{reasoning.currentLabel}
 			</span>
 		</span>
 	</DropdownMenu.SubTrigger>

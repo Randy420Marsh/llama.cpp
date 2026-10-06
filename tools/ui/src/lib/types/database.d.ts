@@ -138,6 +138,8 @@ export interface DatabaseMessage {
 	extra?: DatabaseMessageExtra[];
 	timings?: ChatMessageTimings;
 	model?: string;
+	/** Reasoning setting the reply was requested with, see describeReasoningUsed() */
+	reasoningUsed?: string;
 }
 
 export type ExportedConversation = {

@@ -369,6 +369,9 @@ std::map<std::string, bool> common_chat_templates_get_caps(const common_chat_tem
 // get accepted reasoning effort levels, empty if the template does not use them
 std::vector<std::string> common_chat_templates_get_reasoning_efforts(const common_chat_templates * chat_templates);
 
+// the level a request that names no reasoning_effort runs at, "" if unknown
+std::string common_chat_templates_get_reasoning_effort_default(const common_chat_templates * chat_templates);
+
 std::string common_chat_template_direct_apply(
     const common_chat_template & tmpl,
     const autoparser::generation_params & inputs);

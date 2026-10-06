@@ -102,8 +102,8 @@
 
 							<span class="flex-1">Reasoning</span>
 
-							<span class="text-xs capitalize text-muted-foreground">
-								{reasoning.currentEffort}
+							<span class="text-xs text-muted-foreground">
+								{reasoning.currentLabel}
 							</span>
 						</Collapsible.Trigger>
 

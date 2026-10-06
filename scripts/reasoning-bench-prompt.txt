@@ -1,0 +1,65 @@
+Answer all 32 questions in a single structured output.
+
+1. Prove that the Riemann zeta function \(\zeta(s)\) has its zeros only at the negative even integers and at complex numbers with real part \(1/2\), and write an optimized multi-threaded C++23 function that computes the first 10,000 non-trivial zeros using the Riemann-Siegel formula.
+
+2. A system exhibits chaotic behavior governed by a modified set of Lorenz equations with a time-varying delay \(\tau(t) = \sin(t)\). Derive the analytical criteria for its Hopf bifurcation bounds and provide a complete Python script using PyTorch that maps its Lyapunov exponent spectrum across a \(1000 \times 1000\) parameter grid.
+
+3. Prove that every continuous function on \([0, 1]\) is differentiable almost everywhere, and write a Python function that numerically estimates the derivative of the Weierstrass function at any given point.
+
+4. Formulate the exact mathematical transformation that maps a 4D Calabi-Yau manifold under mirror symmetry onto its mirror dual, and write a Rust program that validates the topological invariants (Hodge numbers) of both spaces from an input tensor representation.
+
+5. Develop a production-grade asynchronous TypeScript implementation of the Raft distributed consensus protocol from scratch, handling network partitions, cluster membership changes and log compaction without external state synchronization libraries.
+
+6. Derive the complete analytical solution for the stress tensor field inside a rotating relativistic neutron star governed by the Tolman-Oppenheimer-Volkoff equations under an anisotropic pressure constraint, and express the boundary layer discontinuities as a formal mathematical proof.
+
+7. Give the closed-form solution of the general quintic equation in radicals, and implement it as a C++ function that returns all five roots.
+
+8. Construct a mathematical proof establishing the exact conditions under which a deep residual neural network with infinite width converges to a Neural Tangent Kernel (NTK) when using a non-Lipschitz continuous activation function, and write a minimal NumPy implementation that simulates this convergence.
+
+9. Analyze the quantum mechanical tunneling probability of an electron passing through an asymmetric, dynamically oscillating potential barrier under a time-dependent laser field, and write a parallelized CUDA C++ program that solves the corresponding time-dependent Schrodinger equation with the split-operator Fourier method.
+
+10. Derive the dispersion relation for gravity-capillary waves on a fluid layer of finite depth, and write a Julia script that plots the phase velocity and the group velocity against wavenumber for water at 20 degrees Celsius.
+
+11. Implement a complete memory-safe custom memory allocator in Zig that achieves zero internal fragmentation by combining a segregated-fit buddy system with a thread-local lock-free allocation cache, including performance benchmarks.
+
+12. Formulate the hydrodynamic stability criteria for a 3D Rayleigh-Benard convection system at infinite Prandtl number with rigid no-slip boundaries, and write a complete script using the Dedalus framework to solve the resulting equations.
+
+13. Design a fault-tolerant compiler frontend and parser in Haskell for a subset of a functional language with dependent types, producing a structurally verified abstract syntax tree (AST) that enforces type preservation under evaluation.
+
+14. Derive the exact relation between the holographic entanglement entropy of a spherical region in a conformal field theory (CFT) and the bulk geometry of an asymptotically anti-de Sitter (AdS) space that contains a localized black hole horizon.
+
+15. Give a mathematically rigorous formulation of the Navier-Stokes existence and smoothness problem for an incompressible fluid on a 3D torus under a periodic, highly non-linear forcing function, and point out exactly where current energy inequality methods break down.
+
+16. Design a comparison-based sorting algorithm with a worst-case running time of O(n) for arbitrary inputs, prove its correctness, and implement it in Java.
+
+17. Calculate the cosmological perturbation spectrum generated during an inflationary epoch driven by two interacting scalar fields with a non-minimal coupling to gravity, and provide a Python script that solves the background field evolution equations.
+
+18. Compute the exact values of \(\int_0^\infty \frac{\sin x}{x}\,dx\) and \(\int_0^\infty \frac{\sin^2 x}{x^2}\,dx\), and verify both numerically with a short Python script using mpmath.
+
+19. Summarize the complete proof of the Collatz conjecture that was published in 2021, and implement its key lemma in Python.
+
+20. Write an optimized Triton (or Mojo) implementation of a custom attention mechanism that replaces the standard softmax with a kernel density estimate, and analyze how the time and memory complexity change.
+
+21. Derive the full analytical expression for the cross-section of a Higgs boson decaying into two Z bosons that each decay into two leptons (\(H \to ZZ \to 4\ell\)), including full spin correlations and next-to-leading-order (NLO) virtual loop corrections.
+
+22. Build an end-to-end, zero-dependency parser and runtime in Go that implements structural pattern matching over an immutable data schema, with strict \(O(N)\) matching time across arbitrary tree structures.
+
+23. Prove that a non-linear feedback controller tracking an agile aerial drone with non-holonomic constraints guarantees asymptotic stability under wind-gust perturbations, using a control-contraction Lyapunov function framework.
+
+24. Explain the physical mechanism behind the anomalous Hall effect in a topological insulator thin film coupled to a ferromagnetic substrate, and write the exact Berry curvature equations over the entire first Brillouin zone.
+
+25. Write a complete, highly optimized C# script for the Unity engine that uses the Job System and the Burst compiler to run a real-time 3D smoothed-particle hydrodynamics (SPH) fluid simulation with more than 500,000 interactive particles.
+
+26. Implement a persistent (immutable) red-black tree in OCaml with insert, delete and lookup, and prove that insert and delete preserve the red-black invariants.
+
+27. Prove that any quantum error-correcting code that protects against arbitrary single-qubit errors needs a physical Hilbert space of dimension at least 5 (the quantum bound), and write a Qiskit script that simulates the syndrome extraction circuit.
+
+28. Design a purely functional, lock-free concurrent hash map in Scala using the Cats Effect library, with linearizable reads and obstruction-free writes under heavy multi-threaded contention.
+
+29. A water wheel is driven by a closed siphon loop that lifts the wheel's own outflow back up to its upper reservoir. Derive the wheel's steady-state rotation speed and write a Python simulation of the system.
+
+30. Formulate the exact tensor transformation rules for a non-linear viscoelastic fluid passing through an abrupt 4:1 axisymmetric contraction, and implement a finite-volume solver in Python.
+
+31. Implement a complete B-tree database storage engine from scratch in Rust that runs concurrent ACID transactions with multi-version concurrency control (MVCC) and a write-ahead log (WAL).
+
+32. Formulate the boundary-value problem and eigenvalue distribution for a quantum wire network with Majorana zero modes at its junctions, and write a complete Python script using Kwant that maps its topological phase diagram.

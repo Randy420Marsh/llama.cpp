@@ -246,6 +246,13 @@ export { default as ChatFormInputFileInputInvisible } from './ChatForm/ChatFormI
 export { default as ChatFormMcpResourcesList } from './ChatForm/ChatFormMcpResourcesList.svelte';
 
 /**
+ * Compact mic-capture control row shown under the input while recording:
+ * live level meter with peak marker and clip flag, input gain slider,
+ * noise-cancelling / auto-stop / auto-send toggles and the silence timeout.
+ */
+export { default as ChatFormMicControls } from './ChatForm/ChatFormMicControls.svelte';
+
+/**
  * The message editor. Renders a plain auto-resizing textarea by default,
  * or a ChatFormInputRich that renders `[name](file://...)` mention links as
  * inline chips (keeping the value as the markdown source string) once a

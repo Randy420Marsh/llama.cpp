@@ -16,7 +16,7 @@
 	interface Props {
 		fields: SettingsFieldConfig[];
 		localConfig: SettingsConfigType;
-		onConfigChange: (key: string, value: string | boolean) => void;
+		onConfigChange: (key: string, value: string | number | boolean) => void;
 		onThemeChange?: (theme: string) => void;
 	}
 
@@ -323,6 +323,41 @@
 							</p>
 						{/if}
 					</div>
+				</div>
+			{:else if field.type === SettingsFieldType.SLIDER}
+				{@const sliderValue = Number(localConfig[field.key] ?? 0)}
+				{@const stepValue = field.step ?? 1}
+				<div class="space-y-2">
+					<div class="flex items-center justify-between gap-2">
+						<Label class="flex items-center gap-1.5 text-sm font-medium" for={field.key}>
+							{field.label}
+
+							{#if field.isExperimental}
+								<FlaskConical class="h-3.5 w-3.5 text-muted-foreground" />
+							{/if}
+						</Label>
+
+						<span class="text-xs text-muted-foreground tabular-nums">
+							{Number.isInteger(sliderValue) ? sliderValue : sliderValue.toFixed(2)}
+						</span>
+					</div>
+
+					<input
+						class="w-full accent-primary"
+						id={field.key}
+						max={field.max ?? 100}
+						min={field.min ?? 0}
+						oninput={(e) => onConfigChange(field.key, Number(e.currentTarget.value))}
+						step={stepValue}
+						type="range"
+						value={sliderValue}
+					/>
+
+					{#if field.help || SETTING_CONFIG_INFO[field.key]}
+						<p class="text-xs text-muted-foreground">
+							{field.help || SETTING_CONFIG_INFO[field.key]}
+						</p>
+					{/if}
 				</div>
 			{/if}
 		</div>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ContextGaugePopup from './ChatFormContextGauge/ContextGaugePopup.svelte';
+	import ChatFormMicControls from './ChatFormMicControls.svelte';
 	import {
 		ChatAttachmentsList,
 		ChatFormActions,
@@ -16,7 +17,8 @@
 		INITIAL_FILE_SIZE,
 		INPUT_CLASSES,
 		PROMPT_CONTENT_SEPARATOR,
-		SETTING_CONFIG_DEFAULT
+		SETTING_CONFIG_DEFAULT,
+		SETTINGS_KEYS
 	} from '$lib/constants';
 	import {
 		ContentPartType,
@@ -34,6 +36,7 @@
 		modelsStore,
 		serverStore,
 		settingsStore,
+		speechStore,
 		toolsStore
 	} from '$lib/stores';
 	import type {
@@ -59,9 +62,11 @@
 		AudioRecorder,
 		convertToWav,
 		createAudioFile,
-		isAudioRecordingSupported
+		isAudioRecordingSupported,
+		transcribeAudio
 	} from '$lib/utils/browser-only';
 	import { onMount } from 'svelte';
+	import { toast } from 'svelte-sonner';
 
 	interface Props {
 		// Data
@@ -118,7 +123,7 @@
 		setCaretOffset(offset: number): void;
 	};
 
-	let audioRecorder: AudioRecorder | undefined;
+	let audioRecorder = $state<AudioRecorder | undefined>(undefined);
 	let chatFormActionsRef: ChatFormActions | undefined = $state(undefined);
 	let fileInputRef: ChatFormInputFileInputInvisible | undefined = $state(undefined);
 	let pickersRef: { handleKeydown: (event: KeyboardEvent) => boolean } | undefined =
@@ -134,6 +139,13 @@
 	// Audio Recording State
 	let isRecording = $state(false);
 	let recordingSupported = $state(false);
+	// Live meter feed from the recorder (level 0..1, peak-hold 0..1, clip flag).
+	let micLevel = $state(0);
+	let micPeak = $state(0);
+	let micClip = $state(false);
+	// Guards the stop path so a manual click and a VAD auto-stop cannot both
+	// finalise the same recording.
+	let isFinishingRecording = $state(false);
 
 	// Invisible anchor at the form's top edge so the mention/WD popovers
 	// float above the box.
@@ -514,24 +526,121 @@
 		}
 
 		if (isRecording) {
-			isRecording = false;
-			try {
-				const audioBlob = await audioRecorder.stopRecording();
-				const wavBlob = await convertToWav(audioBlob);
-				const audioFile = createAudioFile(wavBlob);
+			void finishRecording();
 
-				onFilesAdd?.([audioFile]);
-			} catch (error) {
-				console.error('Failed to stop recording:', error);
-			}
-		} else {
-			try {
-				await audioRecorder.startRecording();
-				isRecording = true;
-			} catch (error) {
-				console.error('Failed to start recording:', error);
-			}
+			return;
 		}
+
+		try {
+			const cfg = settingsStore.config;
+
+			await audioRecorder.startRecording({
+				autoStopSilenceMs: Number(cfg[SETTINGS_KEYS.MIC_AUTO_STOP_SILENCE_MS]) || 5000,
+				gain: Number(cfg[SETTINGS_KEYS.MIC_GAIN] ?? 1) || 1,
+				noiseCancelling: Boolean(cfg[SETTINGS_KEYS.MIC_NOISE_CANCELLING]),
+				// Wire the VAD auto-stop only when the setting is on, so a
+				// manual click-stop recording is never cut short by silence.
+				onAutoStop: cfg[SETTINGS_KEYS.MIC_AUTO_STOP]
+					? () => {
+							void finishRecording();
+						}
+					: undefined,
+				onLevel: (sample) => {
+					micLevel = sample.level;
+					micPeak = sample.peak;
+					micClip = sample.clip;
+				}
+			});
+			isRecording = true;
+		} catch (error) {
+			console.error('Failed to start recording:', error);
+		}
+	}
+
+	async function finishRecording() {
+		if (!audioRecorder || isFinishingRecording) return;
+
+		isFinishingRecording = true;
+		isRecording = false;
+		micLevel = 0;
+		micPeak = 0;
+		micClip = false;
+
+		try {
+			const audioBlob = await audioRecorder.stopRecording();
+			const wavBlob = await convertToWav(audioBlob);
+			const cfg = settingsStore.config;
+			const autoSend = Boolean(cfg[SETTINGS_KEYS.MIC_AUTO_SEND]);
+			const sttLanguage = String(cfg[SETTINGS_KEYS.MIC_STT_LANGUAGE] ?? '').trim();
+			const mode = String(cfg[SETTINGS_KEYS.MIC_MODE] ?? 'auto');
+
+			// A recording becomes text OR an audio attachment, never both: with both,
+			// llama-server's --asr-url transcribed the attachment again and the
+			// message carried the same words twice.
+			let attach = mode === 'attach';
+			let heard = false;
+
+			if (!attach) {
+				if (mode === 'auto' && !speechStore.available) {
+					await speechStore.refresh();
+				}
+
+				if (mode === 'transcribe' || speechStore.available) {
+					try {
+						const transcript = await transcribeAudio(wavBlob, speechStore.url, sttLanguage);
+
+						if (transcript) {
+							heard = true;
+							value = (value ? value.trimEnd() + ' ' : '') + transcript;
+							onValueChange?.(value);
+						} else {
+							toast.info('No speech recognised in the recording');
+						}
+					} catch (error) {
+						// keep the recording rather than lose what was said
+						toast.error(
+							`Transcription failed (${error instanceof Error ? error.message : String(error)}); the recording is attached instead`
+						);
+						attach = true;
+					}
+				} else {
+					attach = true;
+				}
+			}
+
+			if (attach) {
+				onFilesAdd?.([createAudioFile(wavBlob)]);
+			}
+
+			if (autoSend && (heard || attach)) {
+				// The send path (ChatScreenForm.handleSubmit) guards on
+				// hasLoadingAttachments, so wait for the WAV to finish
+				// processing before triggering the submit.
+				await waitForAttachmentsReady();
+				onSubmit?.();
+			}
+		} catch (error) {
+			console.error('Failed to stop recording:', error);
+		} finally {
+			isFinishingRecording = false;
+		}
+	}
+
+	function waitForAttachmentsReady(timeoutMs = 30000): Promise<void> {
+		return new Promise((resolve) => {
+			const start = Date.now();
+			const poll = () => {
+				if (!hasLoadingAttachments || Date.now() - start >= timeoutMs) {
+					resolve();
+
+					return;
+				}
+
+				window.setTimeout(poll, 250);
+			};
+
+			poll();
+		});
 	}
 </script>
 
@@ -617,6 +726,10 @@
 						isResourceDialogOpen = true;
 					}}
 				/>
+			{/if}
+
+			{#if isRecording && audioRecorder}
+				<ChatFormMicControls {audioRecorder} clip={micClip} level={micLevel} peak={micPeak} />
 			{/if}
 
 			<ChatFormActions

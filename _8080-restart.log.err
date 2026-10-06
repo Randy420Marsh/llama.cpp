@@ -1,0 +1,16 @@
+0.00.000.640 I srv  llama_server: initializing ...
+0.00.020.297 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.020.522 W srv  llama_server: security: no API key is set and CORS allows all origins (see https://github.com/ggml-org/llama.cpp/pull/25655)
+0.00.034.722 I srv    load_model: loading model 'E:\LLAMA_GGUF\Huihui-Qwen3.8-27B-abliterated-NVFP4-GGUF\Qwen3.8-27B-huihui-NVFP4.gguf'
+0.12.598.929 I cmn          init: llama threadpool init, n_threads = 24
+0.13.500.273 I common_speculative_init_result: creating MTP draft context against the target model 'E:\LLAMA_GGUF\Huihui-Qwen3.8-27B-abliterated-NVFP4-GGUF\Qwen3.8-27B-huihui-NVFP4.gguf'
+0.15.363.498 I srv    load_model: loaded multimodal model, 'E:\LLAMA_GGUF\Huihui-Qwen3.8-27B-abliterated-NVFP4-GGUF\mmproj-huihui.gguf'
+0.15.363.512 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 130048, kv_unified = 'false'
+0.15.748.652 I srv  make_media_c: video: image tokens 512x288=1032 1920x1088=2040, temporal merge 2, audio none, transcripts http://127.0.0.1:8178
+0.15.748.672 I srv  llama_server: model loaded
+0.15.748.673 I srv  llama_server: listening on http://0.0.0.0:8080
+0.15.748.674 W srv  llama_server: notice: server default port will be changed to :9931 in a future release (ref: https://github.com/ggml-org/llama.cpp/pull/26508)
+94.27.029.606 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+94.27.030.769 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+94.44.528.784 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =   4096, progress = 0.05, t =  16.94 s / 241.82 tokens per second
+96.20.203.501 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =   8192, progress = 0.10, t = 111.86 s / 73.23 tokens per second

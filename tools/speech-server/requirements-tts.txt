@@ -1,0 +1,34 @@
+# Optional GPU speech engines. The base requirements.txt keeps the app
+# CPU-only and dependency-light; install this file to unlock Kokoro,
+# Chatterbox and Orpheus.
+#
+#   run-tts-setup.bat          (Windows)
+#   ./run-tts-setup.sh         (Linux / macOS / Git Bash)
+#
+# torch is NOT listed here on purpose: it must come from the CUDA index so
+# the wheel matches your GPU. The setup scripts install it first, and
+# chatterbox-tts is installed with --no-deps because it pins torch==2.6.0,
+# which predates cu128 and cannot target Blackwell (sm_120) at all.
+
+# --- Kokoro-82M -------------------------------------------------------
+kokoro
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+
+# --- Chatterbox-Turbo (deps only; the package itself needs --no-deps) --
+librosa==0.11.0
+s3tokenizer
+diffusers==0.29.0
+resemble-perth
+conformer==0.3.2
+spacy-pkuseg
+pykakasi
+pyloudnorm
+omegaconf
+
+# --- Orpheus 3B -------------------------------------------------------
+transformers
+snac
+
+# --- shared -----------------------------------------------------------
+numpy
+soundfile

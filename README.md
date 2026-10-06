@@ -17,7 +17,7 @@
 
 </div>
 
-## This fork: video and audio in llama-server
+## This fork: video, audio and voice in llama-server
 
 `llama-server` in this fork accepts `video_url` / `input_video` and `input_audio` / `audio_url` parts
 in chat requests. Video can come from HTTP(S), from `file://` paths under `--media-path`, or as inline
@@ -46,6 +46,19 @@ Guide, options, tested models and internals: [wiki/Home.md](wiki/Home.md), with 
 [wiki/Video-and-Audio.md](wiki/Video-and-Audio.md). Flags and request fields are also listed in
 [tools/server/README.md](tools/server/README.md). Build settings (Windows CUDA with OpenSSL, Ubuntu) and
 the run-time requirements (ffmpeg, the speech-to-text server) are in [wiki/Building.md](wiki/Building.md).
+
+### Voice: read aloud, your own voice, dictation
+
+- **Read aloud:** every reply in the web UI gets a 🔊 button, or is read automatically. Engines (llama.cpp
+  Qwen3-TTS, Piper, Kokoro, Chatterbox, Orpheus), voices, models and languages are picked from lists in
+  **Settings → Voice**, and missing models download from there.
+- **Your own voice:** record about ten seconds in Settings → Voice → Your voices. Nothing is trained:
+  `llama-tts-server` ([tools/tts](tools/tts/README.md)) keeps Qwen3-TTS loaded and clones any voice in its
+  voices folder, about 5x realtime.
+- **Dictation:** the 🎤 button types what you say (Whisper large-v3 through
+  [tools/asr-server](tools/asr-server/)), or sends the recording to a model that can hear; never both.
+- The web UI's back end for all of this is the speech server in [tools/speech-server](tools/speech-server/)
+  (port 8179). Setup, the folders where models and voices go, and ports: [wiki/Voice.md](wiki/Voice.md).
 
 ## Quick start
 

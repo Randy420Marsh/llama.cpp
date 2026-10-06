@@ -49,6 +49,32 @@ llama-tts -m pocket-tts.gguf \
     --output out.wav
 ```
 
+## llama-tts-server (fork)
+
+`llama-tts` loads the model for every run. `llama-tts-server` keeps it loaded and serves an OpenAI-style
+speech endpoint, so a request costs generation time only (about 5x realtime for Qwen3-TTS 1.7B Q8_0 on an
+RTX 5090). Every audio file in `--tts-voices-dir` is a voice: zero-shot cloning, no training.
+
+```sh
+llama-tts-server -m Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf \
+    -mm mmproj-Qwen3-TTS-12Hz-1.7B-Base-bf16.gguf \
+    -ngl 99 --tts-voices-dir voices --port 8181
+
+curl -s localhost:8181/v1/audio/speech -H "Content-Type: application/json" \
+    -d '{"input": "Hello world", "voice": "my-voice", "language": "en"}' -o out.wav
+```
+
+Extra options: `--host` (default `127.0.0.1`), `--port` (default `8181`), `--tts-voices-dir`. The voices folder
+holds `<name>.wav|mp3|flac` files, or `<name>/reference.<ext>` folders with an optional `voice.json`
+(`{"language": "en"}`). `-c` defaults to 4096: a request needs about a thousand positions, and the llama.cpp
+default (the training length, grown by `--fit`) would take all free VRAM.
+
+Endpoints: `GET /health`, `GET /v1/models`, `GET /v1/audio/voices`, `POST /v1/audio/speech`
+(`input`, `voice`, `language`, `seed`, `response_format` = `wav` or `pcm`). Inputs longer than a few sentences
+are split at sentence ends and generated piece by piece.
+
+The web UI uses it through the speech server in `tools/speech-server`; see the wiki page `Voice`.
+
 **Note for GGUF conversion:**
 
 The [upstream repository](https://huggingface.co/kyutai/pocket-tts) holds one complete model per language under `languages/`, next to a set of shared files at the root. Convert one of the `languages/<name>` directories, **not** the root directory:

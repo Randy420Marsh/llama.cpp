@@ -16,15 +16,21 @@
 		/** Auto-scrolls to the bottom of new chunks; pauses on user scroll-up
 		 *  until the user returns to the bottom. */
 		streaming?: boolean;
+		/** Wrap long lines instead of scrolling horizontally. Off by default. */
+		wrap?: boolean;
+		/** Font size in pixels (10-24). 14px matches the previous fixed `text-sm`. */
+		fontSize?: number;
 	}
 
 	let {
 		class: className = '',
 		code,
+		fontSize = 14,
 		language = 'text',
 		maxHeight = '60vh',
 		maxWidth = '',
-		streaming = false
+		streaming = false,
+		wrap = false
 	}: Props = $props();
 
 	const highlightedHtml = $derived(highlightCode(code, language));
@@ -136,7 +142,14 @@
 		: ''}"
 >
 	<!-- Single line: hljs injection depends on a contiguous source string. -->
-	<pre class="m-0"><code class="hljs text-sm leading-relaxed">{@html highlightedHtml}</code></pre>
+	<pre class="m-0">
+		<code
+			class="hljs leading-relaxed"
+			style="font-size: {fontSize}px; white-space: {wrap ? 'pre-wrap' : 'pre'}; {wrap
+				? 'word-break: break-word; overflow-wrap: anywhere;'
+				: ''}">{@html highlightedHtml}</code
+		>
+	</pre>
 </div>
 
 <style>

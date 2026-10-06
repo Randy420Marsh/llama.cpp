@@ -8,11 +8,13 @@ import {
 	Database,
 	Funnel,
 	ListRestart,
+	Mic,
 	Monitor,
 	Moon,
 	PencilRuler,
 	SlidersVertical,
-	Sun
+	Sun,
+	Volume2
 } from '@lucide/svelte';
 import { SyncableParameterType } from '$lib/enums';
 import { SettingsFieldType } from '$lib/enums/settings.enums';
@@ -32,8 +34,10 @@ export const SETTINGS_SECTIONS = {
 	DISPLAY: { slug: 'display', title: 'Display' },
 	GENERAL: { slug: 'general', title: 'General' },
 	IMPORT_EXPORT: { slug: 'import-export', title: 'Import/Export' },
+	MICROPHONE: { slug: 'microphone', title: 'Microphone' },
 	SAMPLING_PENALTIES: { slug: 'sampling-penalties', title: 'Sampling & Penalties' },
-	TOOLS: { slug: 'tools', title: 'Tools' }
+	TOOLS: { slug: 'tools', title: 'Tools' },
+	VOICE: { slug: 'voice', title: 'Voice' }
 } as const;
 
 export const SETTINGS_SECTION_SLUGS = {
@@ -42,8 +46,10 @@ export const SETTINGS_SECTION_SLUGS = {
 	DISPLAY: SETTINGS_SECTIONS.DISPLAY.slug,
 	GENERAL: SETTINGS_SECTIONS.GENERAL.slug,
 	IMPORT_EXPORT: SETTINGS_SECTIONS.IMPORT_EXPORT.slug,
+	MICROPHONE: SETTINGS_SECTIONS.MICROPHONE.slug,
 	SAMPLING_PENALTIES: SETTINGS_SECTIONS.SAMPLING_PENALTIES.slug,
-	TOOLS: SETTINGS_SECTIONS.TOOLS.slug
+	TOOLS: SETTINGS_SECTIONS.TOOLS.slug,
+	VOICE: SETTINGS_SECTIONS.VOICE.slug
 } as const;
 
 export const SETTINGS_SECTION_TITLES = {
@@ -52,8 +58,10 @@ export const SETTINGS_SECTION_TITLES = {
 	DISPLAY: SETTINGS_SECTIONS.DISPLAY.title,
 	GENERAL: SETTINGS_SECTIONS.GENERAL.title,
 	IMPORT_EXPORT: SETTINGS_SECTIONS.IMPORT_EXPORT.title,
+	MICROPHONE: SETTINGS_SECTIONS.MICROPHONE.title,
 	SAMPLING_PENALTIES: SETTINGS_SECTIONS.SAMPLING_PENALTIES.title,
-	TOOLS: SETTINGS_SECTIONS.TOOLS.title
+	TOOLS: SETTINGS_SECTIONS.TOOLS.title,
+	VOICE: SETTINGS_SECTIONS.VOICE.title
 } as const;
 
 export const SETTINGS_REGISTRY: SettingsSectionEntry[] = [
@@ -302,6 +310,24 @@ export const SETTINGS_REGISTRY: SettingsSectionEntry[] = [
 				key: SETTINGS_KEYS.SHOW_FULL_PATH_IN_MENTIONS,
 				label: 'Show full path in mentions',
 				type: SettingsFieldType.CHECKBOX
+			},
+			{
+				defaultValue: false,
+				help: 'Wrap long lines in text previews (attachment documents, pasted text) instead of a horizontal scroll bar. Off by default.',
+				key: SETTINGS_KEYS.PREVIEW_WRAP_LINES,
+				label: 'Wrap lines in text previews',
+				type: SettingsFieldType.CHECKBOX
+			},
+			{
+				defaultValue: 14,
+				help: 'Font size (px) used when previewing text files and pasted text in the chat.',
+				isPositiveInteger: true,
+				key: SETTINGS_KEYS.PREVIEW_FONT_SIZE,
+				label: 'Preview text size (px)',
+				max: 24,
+				min: 10,
+				step: 1,
+				type: SettingsFieldType.SLIDER
 			}
 		],
 		slug: SETTINGS_SECTION_SLUGS.DISPLAY,
@@ -635,6 +661,146 @@ export const SETTINGS_REGISTRY: SettingsSectionEntry[] = [
 		],
 		slug: SETTINGS_SECTION_SLUGS.DEVELOPER,
 		title: SETTINGS_SECTION_TITLES.DEVELOPER
+	},
+	// Voice: read-aloud. Engine, voice, model, language and speed are picked in
+	// SettingsVoice.svelte from the lists the speech server reports, so they are
+	// stored here (defaults, persistence) but not rendered as plain fields.
+	{
+		icon: Volume2,
+		settings: [
+			{
+				defaultValue: '',
+				help: "Speech server (tools/speech-server in this fork). Empty = this page's host on port 8179, which also works from a phone on the LAN.",
+				key: SETTINGS_KEYS.TTS_SERVER_URL,
+				label: 'Speech server URL',
+				placeholder: 'empty = this host, port 8179',
+				standaloneField: true,
+				type: SettingsFieldType.INPUT
+			},
+			{
+				defaultValue: false,
+				help: 'Read every new reply aloud as soon as it has finished.',
+				key: SETTINGS_KEYS.TTS_AUTO_READ,
+				label: 'Read replies aloud automatically',
+				type: SettingsFieldType.CHECKBOX
+			},
+			{
+				defaultValue: '',
+				help: 'Text-to-speech engine; empty = the best one the speech server has installed.',
+				key: SETTINGS_KEYS.TTS_ENGINE,
+				label: 'Engine',
+				standaloneField: false,
+				type: SettingsFieldType.INPUT
+			},
+			{
+				defaultValue: '',
+				help: 'Voice of the engine, built-in or one of your own; empty = the engine default.',
+				key: SETTINGS_KEYS.TTS_VOICE,
+				label: 'Voice',
+				standaloneField: false,
+				type: SettingsFieldType.INPUT
+			},
+			{
+				defaultValue: '',
+				help: 'Model file (quantization) the engine runs; empty = the engine default.',
+				key: SETTINGS_KEYS.TTS_MODEL,
+				label: 'Model',
+				standaloneField: false,
+				type: SettingsFieldType.INPUT
+			},
+			{
+				defaultValue: 'auto',
+				help: "Language the engine speaks; auto = the voice's own language, or guessed from the text.",
+				key: SETTINGS_KEYS.TTS_LANGUAGE,
+				label: 'Language',
+				standaloneField: false,
+				type: SettingsFieldType.INPUT
+			},
+			{
+				defaultValue: 1,
+				help: 'Speech rate (1 = normal).',
+				key: SETTINGS_KEYS.TTS_SPEED,
+				label: 'Speed',
+				max: 1.8,
+				min: 0.6,
+				standaloneField: false,
+				step: 0.1,
+				type: SettingsFieldType.SLIDER
+			}
+		],
+		slug: SETTINGS_SECTION_SLUGS.VOICE,
+		title: SETTINGS_SECTION_TITLES.VOICE
+	},
+	// Microphone: what the mic button records and what the recording becomes
+	{
+		icon: Mic,
+		settings: [
+			{
+				defaultValue: 'auto',
+				help: "Transcribe: your words go into the message box (speech server). Send audio: the recording is attached; a model with an audio encoder hears it, other models get llama-server's --asr-url transcript. Auto: transcribe when the speech server answers, else send audio.",
+				key: SETTINGS_KEYS.MIC_MODE,
+				label: 'Voice input becomes',
+				options: [
+					{ icon: Mic, label: 'Auto', value: 'auto' },
+					{ icon: Mic, label: 'Text (transcribe)', value: 'transcribe' },
+					{ icon: Mic, label: 'Audio attachment', value: 'attach' }
+				],
+				type: SettingsFieldType.SELECT
+			},
+			{
+				defaultValue: 1,
+				help: 'Microphone input gain (0 = muted, 1 = unchanged, up to 3x amplification).',
+				key: SETTINGS_KEYS.MIC_GAIN,
+				label: 'Mic input volume',
+				max: 3,
+				min: 0,
+				step: 0.05,
+				type: SettingsFieldType.SLIDER
+			},
+			{
+				defaultValue: true,
+				help: 'Apply noise suppression + echo cancellation constraints to the microphone while recording.',
+				key: SETTINGS_KEYS.MIC_NOISE_CANCELLING,
+				label: 'Mic noise cancellation',
+				type: SettingsFieldType.CHECKBOX
+			},
+			{
+				defaultValue: true,
+				help: 'Automatically stop the recording after the silence timeout below.',
+				key: SETTINGS_KEYS.MIC_AUTO_STOP,
+				label: 'Mic auto-stop on silence',
+				type: SettingsFieldType.CHECKBOX
+			},
+			{
+				defaultValue: 5000,
+				dependsOn: SETTINGS_KEYS.MIC_AUTO_STOP,
+				help: 'Milliseconds of silence that trigger the automatic stop (when auto-stop is enabled).',
+				isPositiveInteger: true,
+				key: SETTINGS_KEYS.MIC_AUTO_STOP_SILENCE_MS,
+				label: 'Auto-stop silence timeout (ms)',
+				max: 12000,
+				min: 1000,
+				step: 500,
+				type: SettingsFieldType.SLIDER
+			},
+			{
+				defaultValue: false,
+				help: 'Send the transcribed speech as a chat message automatically when the recording stops. When off, the transcript is only inserted into the input box.',
+				key: SETTINGS_KEYS.MIC_AUTO_SEND,
+				label: 'Auto-send after voice input',
+				type: SettingsFieldType.CHECKBOX
+			},
+			{
+				defaultValue: '',
+				help: 'Language of your speech as an ISO code (e.g. "en", "fi"). Empty = detect it. Setting it stops a strong accent from being transcribed as the wrong language.',
+				key: SETTINGS_KEYS.MIC_STT_LANGUAGE,
+				label: 'Voice input language',
+				placeholder: 'auto',
+				type: SettingsFieldType.INPUT
+			}
+		],
+		slug: SETTINGS_SECTION_SLUGS.MICROPHONE,
+		title: SETTINGS_SECTION_TITLES.MICROPHONE
 	}
 ];
 
@@ -676,6 +842,7 @@ function toSettingsSection(section: SettingsSectionEntry): SettingsSection {
 				options: s.options as SettingsFieldConfig['options'],
 				placeholder: s.placeholder,
 				radioOptions: s.radioOptions,
+				step: s.step,
 				type: s.type
 			})),
 		icon: section.icon,
@@ -687,9 +854,13 @@ function toSettingsSection(section: SettingsSectionEntry): SettingsSection {
 /** Sidebar sections in custom display order (the registry array order). */
 export const SETTINGS_CHAT_SECTIONS: SettingsSection[] = SETTINGS_REGISTRY.map(toSettingsSection);
 
-/** INPUT-type settings whose value is a number. */
+/** INPUT/SLIDER-type settings whose value is a number. */
 export const NUMERIC_FIELDS = getAllSettings()
-	.filter((s) => s.type === SettingsFieldType.INPUT && typeof s.defaultValue !== 'string')
+	.filter(
+		(s) =>
+			(s.type === SettingsFieldType.INPUT || s.type === SettingsFieldType.SLIDER) &&
+			typeof s.defaultValue !== 'string'
+	)
 	.map((s) => s.key) as readonly string[];
 
 /** Numeric fields clamped to >= 1 and rounded. */

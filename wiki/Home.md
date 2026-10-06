@@ -1,13 +1,16 @@
-# llama.cpp fork: video and audio in llama-server
+# llama.cpp fork: video, audio and voice
 
 This fork (`Randy420Marsh/llama.cpp`) tracks upstream `ggml-org/llama.cpp`. It adds long-video and audio
-input to `llama-server`, and those changes stay in the fork. Everything else behaves as upstream does.
+input to `llama-server`, and a web UI that reads replies aloud (also in your own, zero-shot cloned voice) and
+takes dictation. Those changes stay in the fork; everything else behaves as upstream does.
 
 ## Pages
 
 - [Building](Building): Windows (CUDA, OpenSSL) and Ubuntu builds, and what the video/audio features need.
 - [Video and audio](Video-and-Audio): user guide covering the request fields, server flags, budgets,
   seeking, transcripts, tested models and errors.
+- [Voice](Voice): read aloud, your own voices, dictation; `llama-tts-server`, the speech server, where the
+  models go.
 - [Media pipeline internals](Media-Pipeline-Internals): how a video part becomes model input, the design
   choices behind it, and the changed files.
 
@@ -23,6 +26,9 @@ input to `llama-server`, and those changes stay in the fork. Everything else beh
 | Timestamps | Frames and transcript lines carry source time: a range 5 h into a file is described at 18000 s |
 | Audio | Native audio for models with an audio encoder (Gemma4-12B, Nemotron-Omni). Other models get timestamped transcripts from an OpenAI-compatible speech-to-text server (`--asr-url`) |
 | Safety | Only plain container formats are opened. Playlist, concat and image-sequence inputs, which can reach other files, are refused |
+| Speech out | `llama-tts-server` keeps Qwen3-TTS / Pocket-TTS loaded behind `/v1/audio/speech`; any clip in its voices folder is a voice (zero-shot cloning, ~5× realtime) |
+| Web UI voice | Settings → Voice lists engines, voices and models from the speech server, records your own voice, downloads models; 🔊 reads a reply sentence by sentence |
+| Dictation | the 🎤 button types what you say (or sends the recording, never both); Settings → Microphone |
 
 All media stays in memory. ffmpeg runs over pipes, the prepared clips are in-memory FFV1/Matroska, and
 audio goes to the transcription server as an in-memory WAV. No temp files are written.

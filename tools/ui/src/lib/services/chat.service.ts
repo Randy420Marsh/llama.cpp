@@ -1054,6 +1054,7 @@ export class ChatService {
 			onToolCallChunk,
 			presence_penalty,
 			reasoningEffort,
+			reasoningLevel,
 			// Penalty parameters
 			repeat_last_n,
 			repeat_penalty,
@@ -1133,8 +1134,16 @@ export class ChatService {
 			? ReasoningFormat.NONE
 			: ReasoningFormat.AUTO;
 
+		// the model's own effort level replaces the token budget: the template decides
+		// how long to think, and nothing cuts the reasoning off
 		const reasoningBudgetTokens =
-			enableThinking && reasoningEffort ? (REASONING_EFFORT_TOKENS[reasoningEffort] ?? -1) : -1;
+			enableThinking && reasoningEffort && !reasoningLevel
+				? (REASONING_EFFORT_TOKENS[reasoningEffort] ?? -1)
+				: -1;
+
+		if (enableThinking && reasoningLevel) {
+			requestBody.reasoning_effort = reasoningLevel;
+		}
 
 		// an explicit user choice injects the kwarg, otherwise it is omitted so
 		// the server default applies (--reasoning flag or chat template)

@@ -227,6 +227,36 @@ export class ModelPropsManager {
 		return this.cache.get(modelId);
 	}
 
+	/** The level a request without reasoning_effort runs at ('' when unknown). */
+	getReasoningEffortDefault(modelId?: string | null): string {
+		void this.cacheVersion;
+
+		const props = !serverStore.isRouterMode
+			? serverStore.props
+			: modelId
+				? this.getModelProps(modelId)
+				: null;
+
+		return props?.reasoning_effort_default ?? '';
+	}
+
+	/**
+	 * Reasoning effort levels the model's template accepts (server /props
+	 * `reasoning_efforts`, without "none": Off covers it). [] when the model has
+	 * none, or in router mode before its props are cached.
+	 */
+	getReasoningEfforts(modelId?: string | null): string[] {
+		void this.cacheVersion;
+
+		const props = !serverStore.isRouterMode
+			? serverStore.props
+			: modelId
+				? this.getModelProps(modelId)
+				: null;
+
+		return (props?.reasoning_efforts ?? []).filter((level: string) => level !== 'none');
+	}
+
 	isModelPropsFetching(modelId: string): boolean {
 		return this.fetching.has(modelId);
 	}

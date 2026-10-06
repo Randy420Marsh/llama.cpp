@@ -9,7 +9,12 @@
  * Uses ChatService for the API layer and conversationsStore for persistence.
  */
 
-import { CWD_CLEARED_TEXT, SYSTEM_MESSAGE_PLACEHOLDER, TITLE_GENERATION } from '$lib/constants';
+import {
+	CWD_CLEARED_TEXT,
+	REASONING_EFFORT_TOKENS,
+	SYSTEM_MESSAGE_PLACEHOLDER,
+	TITLE_GENERATION
+} from '$lib/constants';
 import {
 	ErrorDialogType,
 	MessageRole,
@@ -30,6 +35,7 @@ import { mcpStore } from '$lib/stores/mcp/index.svelte';
 import { modelsStore } from '$lib/stores/models/index.svelte';
 import { serverStore } from '$lib/stores/server.svelte';
 import { settingsStore } from '$lib/stores/settings/index.svelte';
+import { speechStore } from '$lib/stores/speech.svelte';
 import { toolsStore } from '$lib/stores/tools.svelte';
 import type {
 	ApiChatMessageData,
@@ -47,6 +53,7 @@ import {
 	isAbortError,
 	normalizeModelName
 } from '$lib/utils';
+import { nearestEffort } from '$lib/utils/reasoning-levels';
 import { SvelteMap } from 'svelte/reactivity';
 
 class ChatStore implements ChatStreamHost, ChatFlowsHost {
@@ -301,6 +308,8 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 
 		if (!activeConv) throw new Error('No active conversation');
 
+		const reasoningUsed = this.reasoningRequest().used;
+
 		return await DatabaseService.createMessageBranch(
 			{
 				children: [],
@@ -310,7 +319,8 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 				role: MessageRole.ASSISTANT,
 				timestamp: Date.now(),
 				toolCalls: '',
-				type: MessageType.TEXT
+				type: MessageType.TEXT,
+				...(reasoningUsed ? { reasoningUsed } : {})
 			},
 			parentId || null
 		);
@@ -384,13 +394,14 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		if (currentConfig.excludeReasoningFromContext) apiOptions.excludeReasoningFromContext = true;
 
 		// an explicit reasoning choice overrides the server default, DEFAULT sends nothing
-		const effort = conversationsStore.preferences.getReasoningEffort();
+		const reasoning = this.reasoningRequest();
 
-		if (effort !== ReasoningEffort.DEFAULT) {
-			apiOptions.enableThinking = effort !== ReasoningEffort.OFF;
+		if (reasoning.enableThinking !== undefined)
+			apiOptions.enableThinking = reasoning.enableThinking;
 
-			if (effort !== ReasoningEffort.OFF) apiOptions.reasoningEffort = effort;
-		}
+		if (reasoning.reasoningEffort) apiOptions.reasoningEffort = reasoning.reasoningEffort;
+
+		if (reasoning.reasoningLevel) apiOptions.reasoningLevel = reasoning.reasoningLevel;
 
 		if (hasValue(currentConfig.temperature))
 			apiOptions.temperature = Number(currentConfig.temperature);
@@ -514,6 +525,48 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 	/** True while the active conversation has a live streaming pipe. */
 	isStreaming(): boolean {
 		return this.chatStreamingStates.has(conversationsStore.activeConversation?.id ?? '');
+	}
+
+	/**
+	 * The reasoning part of the next request, and how the reply will describe it.
+	 * A model whose server reports effort levels gets one of them as
+	 * reasoning_effort (a saved choice it does not have becomes its nearest
+	 * level, never silently ignored); other models get a thinking-token budget.
+	 * DEFAULT sends nothing and leaves the template's default in charge.
+	 */
+	reasoningRequest(): {
+		enableThinking?: boolean;
+		reasoningEffort?: ReasoningEffort;
+		reasoningLevel?: string;
+		used: string;
+	} {
+		const effort = conversationsStore.preferences.getReasoningEffort();
+		const modelId = serverStore.isRouterMode ? modelsStore.selectedModelName : null;
+
+		if (effort === ReasoningEffort.DEFAULT) {
+			const thinks = serverStore.isRouterMode
+				? modelsStore.props.checkModelSupportsThinking(modelId ?? '')
+				: modelsStore.props.supportsThinking;
+			const level = modelsStore.props.getReasoningEffortDefault(modelId);
+
+			return { used: !thinks ? '' : level ? `default:${level}` : 'default' };
+		}
+
+		if (effort === ReasoningEffort.OFF) {
+			return { enableThinking: false, used: 'off' };
+		}
+
+		const level = nearestEffort(effort, modelsStore.props.getReasoningEfforts(modelId));
+
+		if (level) {
+			return { enableThinking: true, reasoningLevel: level, used: `level:${level}` };
+		}
+
+		return {
+			enableThinking: true,
+			reasoningEffort: effort,
+			used: `budget:${REASONING_EFFORT_TOKENS[effort] ?? -1}`
+		};
 	}
 
 	/**
@@ -1053,6 +1106,8 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 
 				if (onComplete) onComplete(streamedContent);
 
+				speechStore.autoRead(currentMessageId, streamedContent, convId);
+
 				if (serverStore.isRouterMode) modelsStore.fetchRouterModels().catch(console.error);
 
 				// Pre-encode conversation in KV cache for faster next turn
@@ -1196,6 +1251,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 					conversationsStore.updateMessageAtIndex(idx, uiUpdate);
 					await conversationsStore.updateCurrentNode(currentMessageId);
 					cleanupStreamingState();
+					speechStore.autoRead(currentMessageId, content, convId);
 
 					if (onComplete) await onComplete(content);
 

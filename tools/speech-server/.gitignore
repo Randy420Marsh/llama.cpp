@@ -1,0 +1,9 @@
+# created at run time: environment, downloaded models, your voices, TLS keys, logs
+venv/
+models/
+voices/
+certs/
+logs/
+__pycache__/
+*.part
+!run.bat

@@ -37,11 +37,14 @@ Configure and build llama.cpp:
 ```bat
 cd C:\AI\llama.cpp
 call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
+set TORCH_CUDA_ARCH_LIST=12.0
 set CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3
+set CUDA_HOME=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3
 
-cmake -B build -G "Visual Studio 17 2022" -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120 ^
-  -DGGML_CUDA_FORCE_MMQ=ON -DGGML_CUDA_FA_QUANTS=all ^
-  -DOPENSSL_ROOT_DIR="C:\Program Files\OpenSSL"
+rmdir /S /Q build
+
+cmake -B build -G "Visual Studio 17 2022" -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120 -DGGML_CUDA_FORCE_MMQ=ON -DGGML_CUDA_FA_QUANTS=all -DOPENSSL_ROOT_DIR="C:\Program Files\OpenSSL"
+
 cmake --build build --config Release --parallel
 ```
 
@@ -74,7 +77,36 @@ The binaries are in `build/bin/`.
 
 ```bat
 build\bin\Release\llama-server.exe --help | findstr /C:"--asr-url" /C:"--video-max-tokens"
+build\bin\Release\llama-tts-server.exe --help | findstr /C:"--tts-voices-dir"
 ```
 
-Both options are listed in a build of this fork. Then follow [Video and audio](Video-and-Audio) to start the
-speech-to-text server and `llama-server`.
+Both `llama-server` options and the `llama-tts-server` option are listed in a build of this fork. Then follow
+[Video and audio](Video-and-Audio) to start the speech-to-text server and `llama-server`, and [Voice](Voice) for
+read-aloud and your own voices.
+
+## The web UI and the speech tools
+
+The web UI is compiled into `llama-server` from `tools/ui/dist`. After changing anything in `tools/ui/src`,
+rebuild it first, then the server:
+
+```bat
+cd tools\ui
+npm ci
+npm run build
+cd ..\..
+cmake --build build --config Release --target llama-server
+```
+
+`llama-server.exe` and its DLLs are locked while it runs: stop it before relinking (`LNK1104` otherwise).
+
+`llama-tts-server` alone (it does not touch the running chat server's files):
+
+```bat
+cmake --build build --config Release --target llama-tts-server -- /p:BuildProjectReferences=false
+```
+
+`BuildProjectReferences=false` links against the existing import libraries instead of relinking DLLs that a
+running `llama-server` holds open; drop it for a first build.
+
+The speech server and the ASR server are Python programs with their own launchers (`run.bat` / `run.sh`, which
+create a [uv](https://docs.astral.sh/uv/) environment on first run); see [Voice](Voice).

@@ -1,10 +1,12 @@
 <script lang="ts">
+	import ChatAttachmentsPreviewTextToolbar from './ChatAttachmentsPreviewTextToolbar.svelte';
 	import { Eye, FileText, Info } from '@lucide/svelte';
 	import { SyntaxHighlightedCode } from '$lib/components/app';
 	import * as Alert from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
-	import { ICON_CLASS_DEFAULT } from '$lib/constants';
+	import { ICON_CLASS_DEFAULT, SETTINGS_KEYS } from '$lib/constants';
 	import { PdfViewMode } from '$lib/enums';
+	import { settingsStore } from '$lib/stores';
 	import type { ChatAttachmentDisplayItem } from '$lib/types';
 	import { getLanguageFromFilename } from '$lib/utils';
 	import { convertPDFToImage } from '$lib/utils/browser-only';
@@ -26,6 +28,15 @@
 	let pdfImagesError = $state<string | null>(null);
 
 	let language = $derived(getLanguageFromFilename(displayName));
+
+	// Preview text options (Settings -> Display), initialised from persisted values.
+	let wrapLines = $state(Boolean(settingsStore.config[SETTINGS_KEYS.PREVIEW_WRAP_LINES]));
+	const initialFontSize = (() => {
+		const value = Number(settingsStore.config[SETTINGS_KEYS.PREVIEW_FONT_SIZE]);
+
+		return Number.isFinite(value) ? Math.min(24, Math.max(10, Math.round(value))) : 14;
+	})();
+	let fontSize = $state(initialFontSize);
 
 	async function loadPdfImages() {
 		if (pdfImages.length > 0 || pdfImagesLoading || !currentItem) return;
@@ -175,12 +186,27 @@
 {/if}
 
 {#if pdfViewMode === PdfViewMode.TEXT && displayTextContent}
-	<div class="px-4 pb-4">
+	<div class="w-full px-4 pb-4">
+		<ChatAttachmentsPreviewTextToolbar
+			{fontSize}
+			onFontChange={(value) => {
+				fontSize = value;
+				settingsStore.updateConfig(SETTINGS_KEYS.PREVIEW_FONT_SIZE, value);
+			}}
+			onFontInput={(value) => (fontSize = value)}
+			onWrapChange={(value) => {
+				wrapLines = value;
+				settingsStore.updateConfig(SETTINGS_KEYS.PREVIEW_WRAP_LINES, value);
+			}}
+			{wrapLines}
+		/>
+
 		<SyntaxHighlightedCode
-			class="max-w-4xl"
 			code={displayTextContent}
+			{fontSize}
 			{language}
 			maxHeight="none"
+			wrap={wrapLines}
 		/>
 	</div>
 {/if}

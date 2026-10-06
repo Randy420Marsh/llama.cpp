@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Lightbulb } from '@lucide/svelte';
 	import {
 		ChatMessageActionIcons,
 		ChatMessageAgenticContent,
@@ -14,6 +15,7 @@
 	import { chatStore, modelsStore, serverStore, settingsStore } from '$lib/stores';
 	import { modelLoadProgressText } from '$lib/utils';
 	import { hasAgenticContent } from '$lib/utils';
+	import { describeReasoningUsed } from '$lib/utils/reasoning-levels';
 
 	interface Props {
 		class?: string;
@@ -47,6 +49,8 @@
 	let showRawOutput = $state(false);
 
 	let displayedModel = $derived(message.model ?? null);
+	// the reasoning setting this reply was requested with (effort level, budget, off)
+	let reasoningUsedLabel = $derived(describeReasoningUsed(message.reasoningUsed));
 
 	let isCurrentlyLoading = $derived(chatStore.isLoading);
 	let isStreaming = $derived(chatStore.isStreaming());
@@ -170,6 +174,16 @@
 					{onRegenerate}
 				/>
 
+				{#if reasoningUsedLabel}
+					<span
+						class="inline-flex items-center gap-1 rounded-sm border border-border/50 px-1.5 py-0.5"
+						title="The reasoning setting this reply was requested with"
+					>
+						<Lightbulb class="h-3 w-3" />
+						{reasoningUsedLabel}
+					</span>
+				{/if}
+
 				<ChatMessageAssistantStatistics
 					isLoading={chatStore.isLoading}
 					{message}
@@ -184,12 +198,14 @@
 		<ChatMessageActionIcons
 			actionsPosition="left"
 			justify="start"
+			messageId={message.id}
 			onContinue={currentConfig.enableContinueGeneration ? onContinue : undefined}
 			onRawOutputToggle={(enabled) => (showRawOutput = enabled)}
 			{onRegenerate}
 			rawOutputEnabled={showRawOutput}
 			role={MessageRole.ASSISTANT}
 			showRawOutputSwitch={currentConfig.showRawOutputSwitch}
+			text={message.content}
 		/>
 	{/if}
 </div>

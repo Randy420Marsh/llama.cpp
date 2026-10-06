@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speech server</title>
+<style>
+  :root { --bg:#ffffff; --panel:#f6f7f9; --border:#dfe3ea; --text:#1d2129;
+          --muted:#5f6878; --accent:#2f6fe4; --ok:#1f9d55; --bad:#c53030; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1115; --panel:#171a21; --border:#2a2f3a; --text:#d8dce4;
+            --muted:#8b93a3; --accent:#6ea0ff; --ok:#3ecf8e; --bad:#ff6b6b; }
+  }
+  * { box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); margin:0; padding:28px 16px 56px;
+         font:15px/1.6 -apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:860px; margin:0 auto; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  h2 { font-size:17px; margin:32px 0 8px; padding-top:16px; border-top:1px solid var(--border); }
+  p { margin:8px 0; }
+  .lede { color:var(--muted); }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px;
+           padding:12px 14px; margin:10px 0; overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:14px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  code { background:var(--panel); border:1px solid var(--border); border-radius:5px;
+         padding:1px 5px; font:13px/1.4 Consolas,monospace; word-break:break-all; }
+  ol, ul { margin:8px 0; padding-left:22px; }
+  li { margin:4px 0; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .muted { color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Speech server</h1>
+  <p class="lede">
+    Text-to-speech, your own (cloned) voices and speech-to-text for the llama.cpp web UI.
+    Everything runs on this computer; the page that uses it sends only the text to read
+    or the clip you recorded.
+  </p>
+
+  <h2>Use it from the llama.cpp web UI</h2>
+  <ol>
+    <li>Open the web UI (llama-server, usually port 8080) → <b>Settings → Voice</b>. It finds
+      this server on the same host, port 8179 (or put this server's URL in the field).</li>
+    <li>Pick an engine and a voice. <b>llama.cpp (Qwen3-TTS)</b> needs one download
+      (Models → Download, 2.5 GB) and clones voices.</li>
+    <li><b>Your voices → Record</b>: read the passage on screen for ~10 s, name it, save.
+      Nothing is trained; the voice is usable at once.</li>
+    <li>Every reply gets a <b>🔊 Read aloud</b> button; Settings → Voice can read replies
+      automatically. The <b>🎤</b> button dictates into the message box
+      (Settings → Microphone).</li>
+  </ol>
+
+  <h2>Status</h2>
+  <div class="panel" id="status"><span class="muted">loading…</span></div>
+
+  <h2>Other programs</h2>
+  <p>OpenAI-style endpoints, CORS open:</p>
+  <div class="panel">
+    <code>POST /v1/audio/speech {"input": "Hello", "engine": "llamacpp", "voice": "my-voice"}</code> → WAV<br>
+    <code>POST /v1/audio/transcriptions</code> (multipart <code>file</code>) → text<br>
+    <code>GET /api/tts/engines</code>, <code>GET /api/voices/library</code>, <code>GET /api/models</code>
+  </div>
+  <p class="muted">The full description, folders and settings are in this server's README.md.</p>
+</main>
+<script>
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  async function load() {
+    const box = document.getElementById('status');
+    try {
+      const [st, en, lib] = await Promise.all(['/api/status', '/api/tts/engines', '/api/voices/library']
+        .map((u) => fetch(u).then((r) => r.json())));
+      const rows = en.engines.map((e) => `<tr><td>${esc(e.label)}</td>
+        <td class="${e.installed ? 'ok' : 'bad'}">${e.installed ? 'ready' : 'not installed'}</td>
+        <td>${e.voices.length}${e.cloning ? ' (incl. your voices)' : ''}</td>
+        <td>${e.models.length || '—'}</td><td class="muted">${esc(e.installed ? e.note : e.detail)}</td></tr>`).join('');
+      const stt = st.stt.server ? `ASR server ${esc(st.stt.server)}` :
+        st.stt.installed ? `local ${esc(st.stt.model)} (${esc(st.stt.device)})` : 'not available';
+      const paths = Object.entries(st.paths).map(([k, v]) => `<tr><td>${esc(k)}</td><td><code>${esc(v)}</code></td></tr>`).join('');
+      box.innerHTML = `<table><tr><th>Engine</th><th>State</th><th>Voices</th><th>Models</th><th></th></tr>${rows}</table>
+        <p>Your voices: <b>${lib.voices.length}</b> · speech-to-text: ${stt} · port ${esc(st.port)}</p>
+        <table><tr><th>Folder</th><th>Path</th></tr>${paths}</table>`;
+    } catch (e) {
+      box.innerHTML = `<span class="bad">Could not read the status: ${esc(e.message)}</span>`;
+    }
+  }
+  load();
+</script>
+</body>
+</html>

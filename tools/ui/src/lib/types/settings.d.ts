@@ -37,6 +37,7 @@ export interface SettingsEntry {
 	placeholder?: string;
 	min?: number;
 	max?: number;
+	step?: number;
 	dependsOn?: string;
 	sync?: {
 		serverKey: string;
@@ -62,6 +63,7 @@ export interface SettingsFieldConfig {
 	placeholder?: string;
 	min?: number;
 	max?: number;
+	step?: number;
 	dependsOn?: string;
 	help?: string;
 	options?: Array<{ value: string; label: string; icon?: typeof Icon }>;
@@ -89,8 +91,11 @@ export interface SettingsChatServiceOptions {
 	excludeReasoningFromContext?: boolean;
 	// Enable model thinking/reasoning via chat_template_kwargs
 	enableThinking?: boolean;
-	// Reasoning effort level (low/medium/high/max) for thinking models
+	// Reasoning effort level (low/medium/high/max) for thinking models: a thinking-token budget
 	reasoningEffort?: ReasoningEffort;
+	// The model's own effort level (one of /props reasoning_efforts), sent as reasoning_effort
+	// instead of a budget
+	reasoningLevel?: string;
 	tools?: OpenAIToolDefinition[];
 	// Generation parameters
 	temperature?: number;

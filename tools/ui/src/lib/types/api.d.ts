@@ -256,6 +256,11 @@ export interface ApiLlamaCppServerProps {
 		video: boolean;
 	};
 	chat_template: string;
+	chat_template_caps?: Record<string, boolean>;
+	/** fork: reasoning_effort values the template accepts, ladder order; [] = none */
+	reasoning_efforts?: string[];
+	/** fork: the level a request without reasoning_effort runs at ('' = unknown) */
+	reasoning_effort_default?: string;
 	bos_token: string;
 	eos_token: string;
 	build_info: string;
@@ -280,6 +285,11 @@ export interface ApiChatCompletionRequest {
 	tools?: ApiChatCompletionTool[];
 	// Reasoning parameters
 	reasoning_format?: string;
+	/** one of the server's /props reasoning_efforts */
+	reasoning_effort?: string;
+	thinking_budget_tokens?: number;
+	reasoning_control?: boolean;
+	chat_template_kwargs?: Record<string, unknown>;
 	// Generation parameters
 	temperature?: number;
 	max_tokens?: number;

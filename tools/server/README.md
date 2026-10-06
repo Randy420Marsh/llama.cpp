@@ -929,6 +929,8 @@ By default, it is read-only. To make POST request to change global properties, y
 - `model_path` - the path to model file (same with `-m` argument)
 - `chat_template` - the model's original Jinja2 prompt template
 - `chat_template_caps` - capabilities of the chat template (see `common/jinja/caps.h` for more info)
+- `reasoning_efforts` - (fork) the `reasoning_effort` values the template accepts, in ladder order (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`); empty when the template has no effort levels. Qwen3.8, for example: `["low", "medium", "xhigh"]`. Other values make such templates raise an error
+- `reasoning_effort_default` - (fork) the level a request that sends no `reasoning_effort` runs at, found by rendering the template without one; empty when it matches none of the levels
 - `modalities` - the list of supported modalities
 - `is_sleeping` - sleeping status, see [Sleeping on idle](#sleeping-on-idle)
 

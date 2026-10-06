@@ -1541,3 +1541,12 @@ std::vector<std::string> common_chat_templates_get_reasoning_efforts(const commo
     }
     return chat_templates->template_default->caps.reasoning_efforts;
 }
+
+std::string common_chat_templates_get_reasoning_effort_default(const common_chat_templates * chat_templates) {
+    GGML_ASSERT(chat_templates != nullptr);
+    GGML_ASSERT(chat_templates->template_default != nullptr);
+    if (chat_templates->template_tool_use != nullptr) {
+        return chat_templates->template_tool_use->caps.reasoning_effort_default;
+    }
+    return chat_templates->template_default->caps.reasoning_effort_default;
+}

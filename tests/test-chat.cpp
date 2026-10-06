@@ -1923,6 +1923,47 @@ static void test_convert_responses_to_chatcmpl() {
         assert_equals(100, result.at("max_tokens").get<int>());
     }
 
+    // Test text.format json_schema -> response_format (structured output)
+    {
+        json input = json::parse(R"({
+            "input": "Hello",
+            "model": "test-model",
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "graph",
+                    "strict": true,
+                    "schema": {"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"]}
+                },
+                "verbosity": "low"
+            }
+        })");
+
+        json result = server_chat_convert_responses_to_chatcmpl(input);
+
+        assert_equals(false, result.contains("text"));
+        const auto & rf = result.at("response_format");
+        assert_equals(std::string("json_schema"), rf.at("type").get<std::string>());
+        assert_equals(std::string("graph"), rf.at("json_schema").at("name").get<std::string>());
+        assert_equals(true, rf.at("json_schema").at("strict").get<bool>());
+        assert_equals(std::string("string"),
+                      rf.at("json_schema").at("schema").at("properties").at("a").at("type").get<std::string>());
+    }
+
+    // Test text.format json_object and plain text
+    {
+        json result = server_chat_convert_responses_to_chatcmpl(json::parse(R"({
+            "input": "Hello", "text": {"format": {"type": "json_object"}}
+        })"));
+        assert_equals(std::string("json_object"), result.at("response_format").at("type").get<std::string>());
+
+        result = server_chat_convert_responses_to_chatcmpl(json::parse(R"({
+            "input": "Hello", "text": {"format": {"type": "text"}}
+        })"));
+        assert_equals(false, result.contains("response_format"));
+        assert_equals(false, result.contains("text"));
+    }
+
     // Test mixed Responses tools: convert only function tools
     {
         json input = json::parse(R"({

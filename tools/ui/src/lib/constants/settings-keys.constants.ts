@@ -36,12 +36,27 @@ export const SETTINGS_KEYS = {
 	// MCP
 	MCP_SERVERS: 'mcpServers',
 	MENTION_SEARCH_MAX_DEPTH: 'mentionSearchMaxDepth',
+	// Mic / voice capture
+	MIC_AUTO_SEND: 'micAutoSend',
+	MIC_AUTO_STOP: 'micAutoStop',
+	MIC_AUTO_STOP_SILENCE_MS: 'micAutoStopSilenceMs',
+	MIC_GAIN: 'micGain',
+	// What a recording becomes: 'auto' (text when a speech server answers, else
+	// the audio itself), 'transcribe' (always text) or 'attach' (always audio)
+	MIC_MODE: 'micMode',
+	MIC_NOISE_CANCELLING: 'micNoiseCancelling',
+	// Language passed to the STT server when transcribing voice input (ISO code,
+	// e.g. 'en'; blank = auto-detect)
+	MIC_STT_LANGUAGE: 'micSttLanguage',
 	MIN_P: 'min_p',
 	PASTE_LONG_TEXT_TO_FILE_LEN: 'pasteLongTextToFileLen',
 	PDF_AS_IMAGE: 'pdfAsImage',
 	// Performance
 	PRE_ENCODE_CONVERSATION: 'preEncodeConversation',
 	PRESENCE_PENALTY: 'presence_penalty',
+	// Text preview display
+	PREVIEW_FONT_SIZE: 'previewFontSize',
+	PREVIEW_WRAP_LINES: 'previewWrapLines',
 	RENDER_THINKING_AS_MARKDOWN: 'renderThinkingAsMarkdown',
 	RENDER_USER_CONTENT_AS_MARKDOWN: 'renderUserContentAsMarkdown',
 	// Penalties
@@ -72,6 +87,14 @@ export const SETTINGS_KEYS = {
 	TITLE_GENERATION_USE_LLM: 'titleGenerationUseLLM',
 	TOP_K: 'top_k',
 	TOP_P: 'top_p',
+	// TTS / text-to-speech ('' = let the speech server's lists decide)
+	TTS_AUTO_READ: 'ttsAutoRead',
+	TTS_ENGINE: 'ttsEngine',
+	TTS_LANGUAGE: 'ttsLanguage',
+	TTS_MODEL: 'ttsModel',
+	TTS_SERVER_URL: 'ttsServerUrl',
+	TTS_SPEED: 'ttsSpeed',
+	TTS_VOICE: 'ttsVoice',
 	TYP_P: 'typ_p',
 	XTC_PROBABILITY: 'xtc_probability',
 	XTC_THRESHOLD: 'xtc_threshold'

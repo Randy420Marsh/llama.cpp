@@ -11,8 +11,13 @@ export {
 	AudioRecorder,
 	convertToWav,
 	createAudioFile,
-	isAudioRecordingSupported
+	isAudioRecordingSupported,
+	type AudioRecorderOptions,
+	type MicLevelSample
 } from './audio-recording';
+
+// Speech server: speech-to-text for the mic (read-aloud lives in speechStore)
+export { transcribeAudio } from './tts';
 
 // PDF processing utilities (pdfjs-dist with DOMMatrix)
 export {

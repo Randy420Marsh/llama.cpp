@@ -1,0 +1,96 @@
+[model]
+name = "Qwen3.8-27B-huihui-NVFP4"
+endpoint = "http://127.0.0.1:8080"
+build_info = "b11114-27259a791"
+reasoning_efforts = ["low", "medium", "xhigh"]
+
+[[runs]]
+timestamp = "2026-09-22T21:39:07"
+prompt_file = "tools\\bench-smoke-prompt.txt"
+prompt_chars = 71
+max_tokens = 200
+repeat = 1
+
+[[runs.levels]]
+level = "none"
+status = "ok"
+error = 0
+total_time_s = 3.27
+ttft_s = 2.09
+reasoning_time_s = 0.0
+content_time_s = 1.18
+reasoning_chars = 0
+content_chars = 343
+combined_chars = 343
+finish_reason = "stop"
+prompt_tokens = 33
+completion_tokens = 152
+cached_tokens = 0
+prompt_tps = 147.6
+gen_tps = 127.5
+draft_n = 126
+draft_n_accepted = 112
+content_head = "To calculate $27 \\times 43$, we can break the problem down using the distributive property:  1.  Break down 43 into $40 + 3$. 2.  Calculate $27 \\times 40$:     $$27 \\times 4 = 108$$     $$108 \\times 1"
+
+[[runs.levels]]
+level = "low"
+status = "ok"
+error = 0
+total_time_s = 0.96
+ttft_s = 0.25
+reasoning_time_s = 0.72
+content_time_s = 0.25
+reasoning_chars = 80
+content_chars = 46
+combined_chars = 126
+finish_reason = "stop"
+prompt_tokens = 61
+completion_tokens = 93
+cached_tokens = 0
+prompt_tps = 326.4
+gen_tps = 129.9
+draft_n = 75
+draft_n_accepted = 67
+content_head = "27 × 43 = 27 × (40 + 3) = 1080 + 81 = **1161**"
+
+[[runs.levels]]
+level = "medium"
+status = "ok"
+error = 0
+total_time_s = 1.57
+ttft_s = 0.39
+reasoning_time_s = 1.11
+content_time_s = 0.44
+reasoning_chars = 163
+content_chars = 93
+combined_chars = 256
+finish_reason = "stop"
+prompt_tokens = 31
+completion_tokens = 150
+cached_tokens = 0
+prompt_tps = 263.1
+gen_tps = 126.3
+draft_n = 123
+draft_n_accepted = 111
+content_head = "**Short calculation:**  27 × 43 = 27 × (40 + 3) = (27 × 40) + (27 × 3) = 1080 + 81 = **1161**"
+
+[[runs.levels]]
+level = "xhigh"
+status = "ok"
+error = 0
+total_time_s = 1.42
+ttft_s = 0.26
+reasoning_time_s = 1.1
+content_time_s = 0.3
+reasoning_chars = 259
+content_chars = 49
+combined_chars = 308
+finish_reason = "stop"
+prompt_tokens = 73
+completion_tokens = 149
+cached_tokens = 0
+prompt_tps = 392.9
+gen_tps = 126.9
+draft_n = 126
+draft_n_accepted = 108
+content_head = "27 × 43 = 27 × 40 + 27 × 3 = 1080 + 81 = **1161**"

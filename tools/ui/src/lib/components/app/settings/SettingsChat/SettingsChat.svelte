@@ -8,6 +8,7 @@
 		SettingsChatToolsTab,
 		SettingsFooter
 	} from '$lib/components/app/settings';
+	import SettingsVoice from '$lib/components/app/settings/SettingsChat/SettingsVoice.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import {
 		NUMERIC_FIELDS,
@@ -68,7 +69,7 @@
 		setMode(newTheme as ColorMode);
 	}
 
-	function handleConfigChange(key: string, value: string | boolean) {
+	function handleConfigChange(key: string, value: string | number | boolean) {
 		localConfig[key] = value;
 	}
 
@@ -167,6 +168,10 @@
 										Reload app
 									</Button>
 								</div>
+							{/if}
+
+							{#if currentSection.slug === SETTINGS_SECTION_SLUGS.VOICE}
+								<SettingsVoice {localConfig} onConfigChange={handleConfigChange} />
 							{/if}
 						</div>
 					{/if}

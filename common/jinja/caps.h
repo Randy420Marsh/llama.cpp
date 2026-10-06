@@ -21,6 +21,8 @@ struct caps {
     bool supports_reasoning_effort = false;
     // accepted effort levels, in ladder order (empty if not supported)
     std::vector<std::string> reasoning_efforts;
+    // the accepted level the template uses when the request names none (empty if unknown)
+    std::string reasoning_effort_default;
 
     // one of the 2 content capabilities must be true
     bool supports_string_content = true;

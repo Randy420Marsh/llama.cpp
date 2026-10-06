@@ -114,6 +114,9 @@ std::string caps::to_string() const {
         }
         ss << "]\n";
     }
+    if (!reasoning_effort_default.empty()) {
+        ss << "  reasoning_effort_default=" << reasoning_effort_default << "\n";
+    }
     ss << ")";
     return ss.str();
 }
@@ -576,33 +579,55 @@ caps caps_get(jinja::program & prog) {
     );
 
     // probe which effort levels the template accepts: a level is accepted if the
-    // template does not raise on it
+    // template does not raise on it. The level that renders exactly like a request
+    // naming no level is the template's default, so clients can say which level a
+    // "default" request really ran at.
     if (result.supports_reasoning_effort) {
         static const std::vector<std::string> effort_ladder = { "none", "minimal", "low", "medium", "high", "xhigh", "max" };
+        const auto user_message = []() {
+            return json::array({
+                {
+                    {"role", "user"},
+                    {"content", "User message"}
+                },
+            });
+        };
+        std::string default_render;
+        caps_try_execute(
+            prog,
+            user_message,
+            [&](context & ctx) {
+                ctx.set_val("enable_thinking", mk_val<value_bool>(true));
+            },
+            nullptr, // tools_fn
+            [&](context &, bool success, value &, value &, const std::string & rendered) {
+                if (success) {
+                    default_render = rendered;
+                }
+            }
+        );
         for (const auto & level : effort_ladder) {
             bool accepted = false;
+            std::string level_render;
             caps_try_execute(
                 prog,
-                [&]() {
-                    // messages
-                    return json::array({
-                        {
-                            {"role", "user"},
-                            {"content", "User message"}
-                        },
-                    });
-                },
+                user_message,
                 [&](context & ctx) {
                     ctx.set_val("enable_thinking", mk_val<value_bool>(true));
                     caps_apply_reasoning_effort(ctx, level);
                 },
                 nullptr, // tools_fn
-                [&](context &, bool success, value &, value &, const std::string &) {
+                [&](context &, bool success, value &, value &, const std::string & rendered) {
                     accepted = success;
+                    level_render = rendered;
                 }
             );
             if (accepted) {
                 result.reasoning_efforts.push_back(level);
+                if (result.reasoning_effort_default.empty() && !default_render.empty() &&
+                    level_render == default_render) {
+                    result.reasoning_effort_default = level;
+                }
             }
         }
     }

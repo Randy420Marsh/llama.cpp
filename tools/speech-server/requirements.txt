@@ -1,0 +1,7 @@
+piper-tts
+faster-whisper
+fastapi
+uvicorn[standard]
+python-multipart
+# self-signed TLS certificate for --https (mic needs a secure origin)
+cryptography

@@ -13,9 +13,43 @@ import { MimeTypeAudio } from '$lib/enums';
  * - Real-time recording state tracking
  * - Proper cleanup and resource management
  */
+/** Live microphone level sample (0..1 scale, peak-hold + clip flag). */
+export interface MicLevelSample {
+	/** Current level, 0..1 (mapped from -60..0 dBFS). */
+	level: number;
+	/** Peak-hold level, decays over ~1s, 0..1. */
+	peak: number;
+	/** True when the peak reached full scale. */
+	clip: boolean;
+}
+
+/** Options for starting a recording with gain, noise reduction, metering and VAD auto-stop. */
+export interface AudioRecorderOptions {
+	/** Input gain, 1 = unchanged (up to 3x amplification). */
+	gain?: number;
+	/** Apply noise suppression + echo cancellation constraints (default true). */
+	noiseCancelling?: boolean;
+	/** Called ~20x/sec with the input level meter data while recording. */
+	onLevel?: (sample: MicLevelSample) => void;
+	/** Called once when the silence timeout elapses (voice activity detection auto-stop). */
+	onAutoStop?: () => void;
+	/** Silence (ms) that triggers onAutoStop. Default 5000. */
+	autoStopSilenceMs?: number;
+}
+
 export class AudioRecorder {
+	private analyser: AnalyserNode | null = null;
 	private audioChunks: Blob[] = [];
+	private audioContext: AudioContext | null = null;
+	private destStream: MediaStream | null = null;
+	private gain = 1;
+	private gainNode: GainNode | null = null;
+	private lastSpeechTime = 0;
 	private mediaRecorder: MediaRecorder | null = null;
+	private meterData: Float32Array<ArrayBuffer> | null = null;
+	private meterTimer: number | null = null;
+	private options: AudioRecorderOptions = {};
+	private peakLevel = 0;
 	private recordingState: boolean = false;
 	private stream: MediaStream | null = null;
 
@@ -27,6 +61,7 @@ export class AudioRecorder {
 		this.audioChunks = [];
 		this.stream = null;
 		this.recordingState = false;
+		this.cleanupAudioGraph();
 
 		if (recorder && recorder.state !== 'inactive') {
 			// Drop the original handlers so the pending stop event does not touch the instance
@@ -46,17 +81,56 @@ export class AudioRecorder {
 		return this.recordingState;
 	}
 
-	async startRecording(): Promise<void> {
+	/** Live input gain, applied to an in-flight recording without restarting it. */
+	setGain(gain: number): void {
+		this.gain = gain;
+
+		if (this.gainNode && this.audioContext) {
+			this.gainNode.gain.setTargetAtTime(gain, this.audioContext.currentTime, 0.05);
+		}
+	}
+
+	/** Toggle noise suppression + echo cancellation on the live mic track. */
+	async setNoiseCancelling(enabled: boolean): Promise<void> {
+		const track = this.stream?.getAudioTracks()[0];
+
+		if (!track) {
+			return;
+		}
+
 		try {
+			await track.applyConstraints({
+				echoCancellation: true,
+				noiseSuppression: enabled
+			});
+		} catch (error) {
+			console.warn('Failed to apply noise constraints', error);
+		}
+	}
+
+	async startRecording(options: AudioRecorderOptions = {}): Promise<void> {
+		try {
+			this.options = options;
+			const nr = options.noiseCancelling !== false;
+			const gain = options.gain ?? this.gain;
+
+			this.gain = gain;
+
 			this.stream = await navigator.mediaDevices.getUserMedia({
 				audio: {
-					autoGainControl: true,
+					// Leave AGC to the OS when no explicit gain is requested; an explicit gain
+					// goes through our own GainNode instead, so AGC would fight it.
+					autoGainControl: gain === 1,
 					echoCancellation: true,
-					noiseSuppression: true
+					noiseSuppression: nr
 				}
 			});
 
-			this.initializeRecorder(this.stream);
+			this.initializeAudioGraph(this.stream, gain);
+			this.startMetering();
+
+			// Record from the processed graph (gain + metering) when available, else the raw stream.
+			this.initializeRecorder(this.destStream ?? this.stream);
 
 			this.audioChunks = [];
 			// Start recording with a small timeslice to ensure we get data
@@ -64,6 +138,7 @@ export class AudioRecorder {
 			this.recordingState = true;
 		} catch (error) {
 			console.error('Failed to start recording:', error);
+			this.cleanupAudioGraph();
 
 			throw new Error('Failed to access microphone. Please check permissions.');
 		}
@@ -98,6 +173,7 @@ export class AudioRecorder {
 					}
 				}
 
+				this.cleanupAudioGraph();
 				resolve(audioBlob);
 			};
 
@@ -110,11 +186,74 @@ export class AudioRecorder {
 					}
 				}
 
+				this.cleanupAudioGraph();
 				reject(new Error('Recording failed'));
 			};
 
 			recorder.stop();
 		});
+	}
+
+	private cleanupAudioGraph(): void {
+		if (this.meterTimer !== null) {
+			window.clearInterval(this.meterTimer);
+			this.meterTimer = null;
+		}
+
+		this.meterData = null;
+		this.peakLevel = 0;
+
+		if (this.audioContext) {
+			this.audioContext.close().catch(() => {});
+			this.audioContext = null;
+		}
+
+		this.gainNode = null;
+		this.analyser = null;
+		this.destStream = null;
+	}
+
+	/**
+	 * Build the Web Audio graph: mic -> GainNode -> AnalyserNode -> MediaStreamDestination.
+	 * The destination stream feeds the MediaRecorder (so the gain applies to the recording);
+	 * the analyser drives the level meter + VAD. Falls back to the raw stream on failure.
+	 */
+	private initializeAudioGraph(stream: MediaStream, gain: number): void {
+		try {
+			const Ctor =
+				window.AudioContext ??
+				(window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+
+			if (!Ctor) {
+				return;
+			}
+
+			this.audioContext = new Ctor();
+			const source = this.audioContext.createMediaStreamSource(stream);
+
+			this.gainNode = this.audioContext.createGain();
+			this.gainNode.gain.value = gain;
+			this.analyser = this.audioContext.createAnalyser();
+			this.analyser.fftSize = 1024;
+
+			// createMediaStreamDestination is the spec name; the alias is kept for older browsers.
+			const dest =
+				typeof this.audioContext.createMediaStreamDestination === 'function'
+					? this.audioContext.createMediaStreamDestination()
+					: (
+							this.audioContext as unknown as {
+								createMediaStreamAudioDestinationNode(): MediaStreamAudioDestinationNode;
+							}
+						).createMediaStreamAudioDestinationNode();
+
+			source.connect(this.gainNode);
+			this.gainNode.connect(this.analyser);
+			this.gainNode.connect(dest);
+			this.destStream = dest.stream;
+		} catch (error) {
+			console.warn('Web Audio graph unavailable, recording from raw stream', error);
+			this.cleanupAudioGraph();
+		}
 	}
 
 	private initializeRecorder(stream: MediaStream): void {
@@ -148,6 +287,63 @@ export class AudioRecorder {
 			console.error('MediaRecorder error:', event);
 			this.recordingState = false;
 		};
+	}
+
+	private startMetering(): void {
+		if (!this.analyser || this.meterTimer !== null) {
+			return;
+		}
+
+		this.meterData = new Float32Array(this.analyser.fftSize);
+		this.peakLevel = 0;
+		this.lastSpeechTime = performance.now();
+
+		this.meterTimer = window.setInterval(() => this.updateMeter(), 50);
+	}
+
+	private updateMeter(): void {
+		const analyser = this.analyser;
+		const data = this.meterData;
+
+		if (!analyser || !data) {
+			return;
+		}
+
+		analyser.getFloatTimeDomainData(data);
+
+		let sum = 0;
+
+		for (let i = 0; i < data.length; i += 1) {
+			sum += data[i] * data[i];
+		}
+
+		const rms = Math.sqrt(sum / data.length);
+		const db = rms > 0 ? 20 * Math.log10(rms) : -60;
+		const level = Math.min(1, Math.max(0, (db + 60) / 60));
+
+		if (level > this.peakLevel) {
+			this.peakLevel = level;
+		} else {
+			// Peak-hold decay: ~0.03/tick at 20 Hz clears the peak in roughly a second.
+			this.peakLevel = Math.max(0, this.peakLevel - 0.03);
+		}
+
+		this.options.onLevel?.({ clip: this.peakLevel >= 0.99, level, peak: this.peakLevel });
+
+		// Voice activity detection: stop automatically after the configured silence.
+		const now = performance.now();
+
+		if (db > -45) {
+			this.lastSpeechTime = now;
+		} else if (
+			this.options.onAutoStop &&
+			now - this.lastSpeechTime >= (this.options.autoStopSilenceMs ?? 5000)
+		) {
+			const onAutoStop = this.options.onAutoStop;
+
+			this.options.onAutoStop = undefined;
+			onAutoStop();
+		}
 	}
 }
 

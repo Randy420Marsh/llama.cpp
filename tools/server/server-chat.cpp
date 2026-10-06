@@ -306,6 +306,34 @@ json server_chat_convert_responses_to_chatcmpl(const json & response_body) {
         chatcmpl_body.erase("reasoning");
     }
 
+    if (response_body.contains("text")) {
+        // #responses_create-text: structured output lives in text.format, which
+        // chat completions calls response_format ("verbosity" has no equivalent)
+        const json & text = response_body.at("text");
+        if (text.is_object() && text.contains("format") && text.at("format").is_object()) {
+            const json & format = text.at("format");
+            const std::string type = json_value(format, "type", std::string("text"));
+            if (type == "json_schema") {
+                json json_schema = {
+                    {"name",   json_value(format, "name", std::string("response"))},
+                    {"schema", json_value(format, "schema", json::object())},
+                };
+                if (format.contains("strict")) {
+                    json_schema["strict"] = format.at("strict");
+                }
+                chatcmpl_body["response_format"] = {
+                    {"type",        "json_schema"},
+                    {"json_schema", json_schema},
+                };
+            } else if (type == "json_object") {
+                chatcmpl_body["response_format"] = {{"type", "json_object"}};
+            } else if (type != "text") {
+                throw std::invalid_argument("unsupported text.format type: " + type);
+            }
+        }
+        chatcmpl_body.erase("text");
+    }
+
     return chatcmpl_body;
 }
 

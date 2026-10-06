@@ -1,5 +1,14 @@
 <script lang="ts">
-	import { ArrowRight, Copy, Edit, GitBranch, RefreshCw, Trash2 } from '@lucide/svelte';
+	import {
+		ArrowRight,
+		Copy,
+		Edit,
+		GitBranch,
+		RefreshCw,
+		Square,
+		Trash2,
+		Volume2
+	} from '@lucide/svelte';
 	import {
 		ActionIcon,
 		ChatMessageActionIconsBranchingControls,
@@ -11,12 +20,16 @@
 	import { Switch } from '$lib/components/ui/switch';
 	import { getChatMessageActionsContext, getChatMessageEditContext } from '$lib/contexts';
 	import { MessageRole } from '$lib/enums';
-	import { conversationsStore } from '$lib/stores';
+	import { conversationsStore, speechStore } from '$lib/stores';
+	import { onMount } from 'svelte';
 
 	interface Props {
 		role: MessageRole.USER | MessageRole.ASSISTANT;
 		justify: 'start' | 'end';
 		actionsPosition: 'left' | 'right';
+		/** Message id and markdown source, for the read-aloud button. */
+		messageId?: string;
+		text?: string;
 		onRegenerate?: () => void;
 		onContinue?: () => void;
 		showRawOutputSwitch?: boolean;
@@ -27,12 +40,14 @@
 	let {
 		actionsPosition,
 		justify,
+		messageId = '',
 		onContinue,
 		onRawOutputToggle,
 		onRegenerate,
 		rawOutputEnabled = false,
 		role,
-		showRawOutputSwitch = false
+		showRawOutputSwitch = false,
+		text = ''
 	}: Props = $props();
 
 	const messageActions = getChatMessageActionsContext();
@@ -62,6 +77,17 @@
 		});
 		showForkDialog = false;
 	}
+
+	// ---- read aloud (speech server, Settings -> Voice) ----
+	// shown only when the speech server answers; a second click stops reading
+	let speaking = $derived(messageId !== '' && speechStore.speakingId === messageId);
+	let canReadAloud = $derived(
+		role === MessageRole.ASSISTANT && text.trim().length > 0 && speechStore.available
+	);
+
+	onMount(() => {
+		if (role === MessageRole.ASSISTANT) speechStore.ensureFresh();
+	});
 </script>
 
 <div class="relative {justify === 'start' ? 'mt-2' : ''} flex h-6 items-center justify-between">
@@ -83,6 +109,18 @@
 
 			{#if role === MessageRole.ASSISTANT && onRegenerate}
 				<ActionIcon icon={RefreshCw} onclick={() => onRegenerate()} tooltip="Regenerate" />
+			{/if}
+
+			{#if canReadAloud || speaking}
+				<ActionIcon
+					icon={speaking ? Square : Volume2}
+					onclick={() => speechStore.toggle(messageId || text.slice(0, 64), text)}
+					tooltip={speaking
+						? speechStore.loading
+							? 'Preparing voice… (click to stop)'
+							: 'Stop reading'
+						: 'Read aloud'}
+				/>
 			{/if}
 
 			{#if role === MessageRole.ASSISTANT && onContinue}

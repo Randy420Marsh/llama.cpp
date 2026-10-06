@@ -51,6 +51,9 @@ export { settingsStore } from './settings/index.svelte';
 
 export { permissionsStore } from './permissions.svelte';
 
+// SPEECH (read-aloud player, speech server engines/voices/models)
+export { speechStore } from './speech.svelte';
+
 // TOOLS
 export { toolsStore } from './tools.svelte';
 

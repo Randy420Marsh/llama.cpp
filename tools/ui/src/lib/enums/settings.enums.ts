@@ -23,5 +23,6 @@ export enum SettingsFieldType {
 	INPUT = 'input',
 	RADIO = 'radio',
 	SELECT = 'select',
+	SLIDER = 'slider',
 	TEXTAREA = 'textarea'
 }
