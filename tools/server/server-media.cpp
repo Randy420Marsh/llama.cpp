@@ -715,11 +715,13 @@ json server_media_video_part(const json & part, const server_media_config & cfg,
         const media_segment & seg = o.segments[i];
         const bool whole = !o.explicit_range;
 
+        // always state the time range: without the end time, models count frame timestamps past the end of the clip
+        std::string head = "Video";
         if (o.explicit_range) {
-            std::string head = several ? "Video segment " + std::to_string(i + 1) + " of " + std::to_string(o.segments.size())
-                                       : std::string("Video segment");
-            out.push_back(text_part(head + ", source time " + fmt_hms(seg.start) + " to " + fmt_hms(seg.end) + ":"));
+            head = several ? "Video segment " + std::to_string(i + 1) + " of " + std::to_string(o.segments.size())
+                           : std::string("Video segment");
         }
+        out.push_back(text_part(head + ", source time " + fmt_hms(seg.start) + " to " + fmt_hms(seg.end) + ":"));
 
         // in-memory FFV1 clip: exact (lossless) frames at the planned fps and size, timestamps shifted to the source time
         std::vector<std::string> args = {resolve_bin(cfg, "ffmpeg"), "-nostdin", "-hide_banner", "-loglevel", "error"};
