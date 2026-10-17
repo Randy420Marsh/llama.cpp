@@ -27,9 +27,7 @@ export interface UseReasoningMenuReturn {
 /**
  * Shared reactive state and helpers for the reasoning effort menu.
  *
- * Used by both the desktop dropdown (`ChatFormActionAddReasoningSubmenu`)
- * and the mobile sheet (`ChatFormActionAddSheet`) to avoid duplicating the
- * thinking-support derivation and the effort selection logic.
+ * Shared by the dropdown footer and the mobile sheet.
  *
  * A model whose server reports effort levels (/props `reasoning_efforts`) gets
  * exactly those, sent as `reasoning_effort` (see utils/reasoning-levels.ts).

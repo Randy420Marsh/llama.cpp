@@ -22,7 +22,7 @@
 </script>
 
 {#if displayTextContent}
-	<div class="w-full px-4 pb-4">
+	<div class="w-full px-4 pb-4 min-h-0 min-w-0 max-w-full md:max-w-[80vw]">
 		<ChatAttachmentsPreviewTextToolbar
 			{fontSize}
 			onFontChange={(value) => {
@@ -41,7 +41,7 @@
 			code={displayTextContent}
 			{fontSize}
 			{language}
-			maxHeight="none"
+			maxHeight="80dvh"
 			wrap={wrapLines}
 		/>
 	</div>

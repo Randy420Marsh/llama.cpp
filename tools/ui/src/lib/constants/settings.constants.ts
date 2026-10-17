@@ -134,6 +134,15 @@ export const SETTINGS_REGISTRY: SettingsSectionEntry[] = [
 				type: SettingsFieldType.CHECKBOX
 			},
 			{
+				// Deliberately off for now: the natural place to turn it on is the first
+				// run experience, once onboarding exists to ask the user about it.
+				defaultValue: false,
+				help: 'Fetch model metadata (avatars, context length, chat template) from the Hugging Face Hub. When off, the UI only shows what the server reports for /v1/models and hides the org avatars.',
+				key: SETTINGS_KEYS.USE_HUGGING_FACE_HUB,
+				label: 'Use Hugging Face Hub API for models metadata',
+				type: SettingsFieldType.CHECKBOX
+			},
+			{
 				defaultValue: true,
 				help: 'Choose how conversation titles are generated. The first non-empty line uses a fast deterministic rule; the LLM option uses a model-generated title from the first message exchange.',
 				key: SETTINGS_KEYS.TITLE_GENERATION_USE_FIRST_LINE,
@@ -292,9 +301,16 @@ export const SETTINGS_REGISTRY: SettingsSectionEntry[] = [
 			},
 			{
 				defaultValue: false,
-				help: 'Display the organization name in the model selector trigger button.',
-				key: SETTINGS_KEYS.SHOW_MODEL_ORG_NAME_IN_TRIGGER,
-				label: 'Show organization name in model selector trigger',
+				help: 'Show the modality and capability icons (vision, audio, reasoning, tools) on the models selector rows.',
+				key: SETTINGS_KEYS.SHOW_MODEL_CAPABILITIES_IN_SELECTOR,
+				label: 'Show model modalities & capabilities in models selector',
+				type: SettingsFieldType.CHECKBOX
+			},
+			{
+				defaultValue: true,
+				help: 'Display the organization name alongside model names in the model selector, in the trigger and in the model rows.',
+				key: SETTINGS_KEYS.SHOW_MODEL_ORG_NAME,
+				label: 'Show organization name in model selector',
 				type: SettingsFieldType.CHECKBOX
 			},
 			{
@@ -328,6 +344,13 @@ export const SETTINGS_REGISTRY: SettingsSectionEntry[] = [
 				min: 10,
 				step: 1,
 				type: SettingsFieldType.SLIDER
+			},
+			{
+				defaultValue: true,
+				help: 'Group models into families (e.g. "Qwen") in the model picker and the models manager. Turn it off to list every model on its own.',
+				key: SETTINGS_KEYS.GROUP_MODELS_BY_FAMILY,
+				label: 'Group models by family',
+				type: SettingsFieldType.CHECKBOX
 			}
 		],
 		slug: SETTINGS_SECTION_SLUGS.DISPLAY,
