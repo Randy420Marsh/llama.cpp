@@ -190,7 +190,7 @@ For the full list of features, please refer to [server's changelog](https://gith
 | `--video-max-frames N` | maximum frames per video part in chat requests; requests may only lower it (default: 768)<br/>(env: LLAMA_ARG_VIDEO_MAX_FRAMES) |
 | `--video-min-fps N` | lowest frame rate a video part may be thinned to; longer ranges are rejected (default: 0.05)<br/>(env: LLAMA_ARG_VIDEO_MIN_FPS) |
 | `--video-dedup N` | drop repeated video frames: a frame (group) is kept only if some region of it changed by at least N luma levels (0-255) since the last kept one; 0 = off (default: 4.0)<br/>(env: LLAMA_ARG_VIDEO_DEDUP) |
-| `--asr-url URL` | OpenAI-compatible speech-to-text server (POST /v1/audio/transcriptions) used to transcribe audio and the audio track of videos for models without an audio encoder, e.g. http://127.0.0.1:8178 (default: disabled)<br/>(env: LLAMA_ARG_ASR_URL) |
+| `--asr-url URL` | OpenAI-compatible speech-to-text server (POST /v1/audio/transcriptions) used to transcribe audio and the audio track of videos for models without an audio encoder, e.g. https://127.0.0.1:8178 (default: disabled)<br/>(env: LLAMA_ARG_ASR_URL) |
 | `--asr-model NAME` | model name sent to the speech-to-text server (default: server default)<br/>(env: LLAMA_ARG_ASR_MODEL) |
 | `--asr-language LANG` | default spoken language for transcripts, e.g. en, zh (default: auto-detect)<br/>(env: LLAMA_ARG_ASR_LANGUAGE) |
 | `--audio-native-max-seconds N` | with an audio-capable mmproj, audio longer than this is transcribed instead (needs --asr-url) (default: 600)<br/>(env: LLAMA_ARG_AUDIO_NATIVE_MAX_SECONDS) |

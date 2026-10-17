@@ -30,11 +30,12 @@ Example (Qwen3.8-27B with its MTP head, 160k context, local files under `C:\medi
 llama-server -m Qwen3.8-27B-huihui-NVFP4.gguf --mmproj mmproj-huihui.gguf `
   --spec-type draft-mtp --spec-draft-ngl 99 --spec-draft-n-max 3 `
   -ngl 99 -fa on --jinja -c 160000 --host 127.0.0.1 --port 8080 `
-  --media-path C:\media\ --asr-url http://127.0.0.1:8178
+  --media-path C:\media\ --asr-url https://127.0.0.1:8178 `
+  --ssl-key-file C:\AI\ssl\key.pem --ssl-cert-file C:\AI\ssl\cert.pem
 ```
 
 At startup the server logs what it measured from the mmproj, for example
-`video: image tokens 512x288=144 1920x1088=2040, temporal merge 2, audio none, transcripts http://127.0.0.1:8178`.
+`video: image tokens 512x288=144 1920x1088=2040, temporal merge 2, audio none, transcripts https://127.0.0.1:8178`.
 
 ### Flags
 

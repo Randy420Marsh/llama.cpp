@@ -2713,7 +2713,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
     add_opt(common_arg(
         {"--asr-url"}, "URL",
         "OpenAI-compatible speech-to-text server (POST /v1/audio/transcriptions) used to transcribe audio and the audio "
-        "track of videos for models without an audio encoder, e.g. http://127.0.0.1:8178 (default: disabled)",
+        "track of videos for models without an audio encoder, e.g. https://127.0.0.1:8178 (default: disabled)",
         [](common_params & params, const std::string & value) {
             params.asr_url = value;
         }

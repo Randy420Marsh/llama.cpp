@@ -1,13 +1,16 @@
 @echo off
 setlocal
+chcp 65001 >nul
+set "PYTHONUTF8=1"
 cd /d "%~dp0"
 
 rem ===== Speech server for the llama.cpp web UI (Windows) ================
 rem Text-to-speech, your own (cloned) voices, model downloads, speech-to-text.
 rem First run: creates the uv venv and installs requirements. Later runs:
 rem skip all that (stamp file) and start the server immediately.
-rem   run.bat --no-https --lan    ...what the command center runs: http, LAN, port 8179
+rem   run.bat --lan               ...what the command center runs: https, LAN, port 8179
 rem   run.bat                     ...https on 127.0.0.1:8179 (TLS default)
+rem The certificate is llama-server's (LLAMA_ARG_SSL_*), defaulting to C:\AI\ssl.
 rem   run.bat --setup-only        ...set up, then exit
 rem   run.bat --port 8179 --engine piper   ...forwarded to server.py
 rem GPU engines (Kokoro, Chatterbox, Orpheus): run-tts-setup.bat once.
@@ -39,6 +42,9 @@ if /i "%~1"=="--setup-only" (
     echo [OK] Setup complete. Models: venv\Scripts\python setup\fetch_voices.py --list
     exit /b 0
 )
+
+if not defined LLAMA_ARG_SSL_CERT_FILE if exist "C:\AI\ssl\cert.pem" set "LLAMA_ARG_SSL_CERT_FILE=C:\AI\ssl\cert.pem"
+if not defined LLAMA_ARG_SSL_KEY_FILE if exist "C:\AI\ssl\key.pem" set "LLAMA_ARG_SSL_KEY_FILE=C:\AI\ssl\key.pem"
 
 echo [Setup] Starting server. The URL to open is printed below.
 python server.py %*

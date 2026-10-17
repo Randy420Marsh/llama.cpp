@@ -45,10 +45,12 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -74,6 +76,8 @@ struct server_opts {
     std::string host       = "127.0.0.1";
     int         port       = 8181;
     std::string voices_dir;
+    std::string ssl_key;   // both set: serve https (same env vars as llama-server)
+    std::string ssl_cert;
 };
 
 static void print_usage(int, char ** argv) {
@@ -84,6 +88,9 @@ static void print_usage(int, char ** argv) {
     LOG("  --host HOST            listen address (default: 127.0.0.1)\n");
     LOG("  --port PORT            listen port (default: 8181)\n");
     LOG("  --tts-voices-dir DIR   folder of reference clips, one voice per file or sub-folder\n");
+    LOG("  --ssl-key-file FNAME   PEM private key; with --ssl-cert-file serves https\n");
+    LOG("                         (env: LLAMA_ARG_SSL_KEY_FILE)\n");
+    LOG("  --ssl-cert-file FNAME  PEM certificate (env: LLAMA_ARG_SSL_CERT_FILE)\n");
     LOG("\n");
 }
 
@@ -119,11 +126,19 @@ static std::vector<std::string> utf8_args(int argc, char ** argv) {
 }
 
 static bool take_server_opts(std::vector<std::string> & args, server_opts & opts) {
+    // the common parser only reads LLAMA_ARG_SSL_* for llama-server, so read them here
+    if (const char * e = std::getenv("LLAMA_ARG_SSL_KEY_FILE")) {
+        opts.ssl_key = e;
+    }
+    if (const char * e = std::getenv("LLAMA_ARG_SSL_CERT_FILE")) {
+        opts.ssl_cert = e;
+    }
     std::vector<std::string> rest;
     for (size_t i = 0; i < args.size(); i++) {
         const std::string & a = args[i];
         const bool has_val = i + 1 < args.size();
-        if (a == "--host" || a == "--port" || a == "--tts-voices-dir") {
+        if (a == "--host" || a == "--port" || a == "--tts-voices-dir" || a == "--ssl-key-file" ||
+            a == "--ssl-cert-file") {
             if (!has_val) {
                 fprintf(stderr, "error: %s needs a value\n", a.c_str());
                 return false;
@@ -133,6 +148,10 @@ static bool take_server_opts(std::vector<std::string> & args, server_opts & opts
                 opts.host = v;
             } else if (a == "--port") {
                 opts.port = std::atoi(v.c_str());
+            } else if (a == "--ssl-key-file") {
+                opts.ssl_key = v;
+            } else if (a == "--ssl-cert-file") {
+                opts.ssl_cert = v;
             } else {
                 opts.voices_dir = v;
             }
@@ -141,6 +160,10 @@ static bool take_server_opts(std::vector<std::string> & args, server_opts & opts
         rest.push_back(a);
     }
     args = std::move(rest);
+    if (opts.ssl_key.empty() != opts.ssl_cert.empty()) {
+        fprintf(stderr, "error: https needs both --ssl-key-file and --ssl-cert-file\n");
+        return false;
+    }
     return opts.port > 0 && opts.port < 65536;
 }
 
@@ -497,12 +520,34 @@ int main(int argc, char ** argv) {
     const std::string default_speaker = eng.params.tts_speaker_file;
     const std::string default_lang    = eng.params.tts_lang.empty() ? "en" : eng.params.tts_lang;
 
-    httplib::Server svr;
+    const bool use_ssl = !sopts.ssl_key.empty();
+    std::unique_ptr<httplib::Server> svr_ptr;
+#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
+    if (use_ssl) {
+        svr_ptr = std::make_unique<httplib::SSLServer>(sopts.ssl_cert.c_str(), sopts.ssl_key.c_str());
+        if (!svr_ptr->is_valid()) {
+            LOG_ERR("tts-server: cannot load the certificate '%s' / key '%s'\n", sopts.ssl_cert.c_str(),
+                    sopts.ssl_key.c_str());
+            return 1;
+        }
+    } else {
+        svr_ptr = std::make_unique<httplib::Server>();
+    }
+#else
+    if (use_ssl) {
+        LOG_ERR("tts-server: built without SSL support, cannot serve https\n");
+        return 1;
+    }
+    svr_ptr = std::make_unique<httplib::Server>();
+#endif
+    httplib::Server & svr = *svr_ptr;
     svr.set_default_headers({
         { "Access-Control-Allow-Origin",   "*" },
         { "Access-Control-Allow-Headers",  "Content-Type, Authorization" },
         { "Access-Control-Allow-Methods",  "GET, POST, OPTIONS" },
         { "Access-Control-Expose-Headers", "X-Audio-Seconds, X-Generation-Seconds, X-Voice, X-Language" },
+        // lets a cross-origin isolated page (the llama-server UI) load the audio directly
+        { "Cross-Origin-Resource-Policy",  "cross-origin" },
     });
     svr.Options(R"(.*)", [](const httplib::Request &, httplib::Response & res) { res.status = 204; });
 
@@ -659,7 +704,7 @@ int main(int argc, char ** argv) {
 
     LOG_INF("tts-server: %s (%s, %d Hz) voices from '%s'\n", eng.model_id.c_str(), gen_type_name(eng.info.type),
             eng.info.sample_rate, eng.voices_dir.empty() ? "(none)" : eng.voices_dir.c_str());
-    LOG_INF("tts-server: listening on http://%s:%d\n", sopts.host.c_str(), sopts.port);
+    LOG_INF("tts-server: listening on %s://%s:%d\n", use_ssl ? "https" : "http", sopts.host.c_str(), sopts.port);
     if (!svr.listen(sopts.host, sopts.port)) {
         LOG_ERR("tts-server: cannot listen on %s:%d (port in use?)\n", sopts.host.c_str(), sopts.port);
         return 1;

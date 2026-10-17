@@ -27,10 +27,13 @@ work:
 2. **Speech-to-text** (recommended; needed for languages other than English):
    `tools\asr-server\run.bat --port 8178 --model large-v3 --compute-type float16 --preload`
    (Linux: `bash tools/asr-server/run.sh ...`).
-3. **Speech server**: `tools\speech-server\run.bat --no-https --lan` (Linux: `./run.sh --no-https --lan`).
+3. **Speech server**: `tools\speech-server\run.bat --lan` (Linux: `./run.sh --lan`).
    The first run creates its Python environment ([uv](https://docs.astral.sh/uv/) must be on `PATH`).
-4. **llama-server** as always, e.g. `llama-server -m model.gguf --host 0.0.0.0 --port 8080 --asr-url http://127.0.0.1:8178`.
-5. Open `http://<pc>:8080` → **Settings → Voice**:
+4. **llama-server** as always, e.g. `llama-server -m model.gguf --host 0.0.0.0 --port 8080 --asr-url https://127.0.0.1:8178
+   --ssl-key-file C:\AI\ssl\key.pem --ssl-cert-file C:\AI\ssl\cert.pem`.
+   All three servers use https with the same certificate: the launchers of the ASR and speech servers default to
+   `C:\AI\ssl\cert.pem` / `key.pem` (or the `LLAMA_ARG_SSL_CERT_FILE` / `LLAMA_ARG_SSL_KEY_FILE` variables).
+5. Open `https://<pc>:8080` → **Settings → Voice**:
    * **Models** → *Download* "Qwen3-TTS 1.7B Q8_0" (2.5 GB);
    * **Your voices** → *Record* → read the passage on screen → *Stop* → name → *Save voice*;
    * *Test*, then **Save settings**.
@@ -125,6 +128,7 @@ llama-tts-server -hf ggml-org/Qwen3-TTS-12Hz-1.7B-Base-GGUF --port 8181      # d
 | | |
 |---|---|
 | `--host`, `--port` | default `127.0.0.1:8181` |
+| `--ssl-key-file`, `--ssl-cert-file` | serve https (env `LLAMA_ARG_SSL_KEY_FILE` / `LLAMA_ARG_SSL_CERT_FILE`, as for `llama-server`). The speech server passes its own certificate |
 | `--tts-voices-dir DIR` | one voice per audio file (`<name>.wav/mp3/flac`) or per sub-folder with `reference.<ext>` (+ `voice.json` `{"language": "en"}`) |
 | `--tts-speaker-file FILE` | the voice used when a request names none |
 | `--tts-lang` | default language |
@@ -168,6 +172,10 @@ a job object that closes with the speech server).
 On Windows a second `llama-server` can bind a port that is already taken, and requests then reach either
 process; keep every server on its own port.
 
+8180 and 8181 listen on 127.0.0.1 only, over https whenever the speech server has a certificate. They start
+without any `LLAMA_ARG_*` variable from the shell, so the chat server's model or draft settings never leak
+into them.
+
 ## Troubleshooting
 
 | Symptom | Cause |
@@ -177,4 +185,5 @@ process; keep every server on its own port.
 | The 🎤 button is disabled | the page is not on `https://` or `localhost` |
 | Dictation in a foreign language comes out wrong | the local fallback Whisper is English-only: start the ASR server, and set *Voice input language* |
 | `llama-tts-server` takes all free VRAM | an explicit `-c 0`; leave `-c` unset (4096) |
+| Orpheus slower than real time / sounds slowed | the card is full and Windows pages VRAM into system memory. A 27B chat model (23.9 GB) + Orpheus Q8_0 (4.8 GB) + SNAC (1.2 GB) is ~30.6 of 32 GB. SNAC moves to the CPU on its own when under 8 GB is free (`ORPHEUS_SNAC_DEVICE`); Q6_K saves another 0.8 GB. Normal speed is ~3× real time, ~2× while the chat model generates |
 | Kokoro / Chatterbox / Orpheus "not installed" | run `tools/speech-server/run-tts-setup.bat` (or `.sh`) once |

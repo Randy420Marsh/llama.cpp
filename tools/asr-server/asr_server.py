@@ -63,7 +63,7 @@ def free_vram_gb() -> float | None:
     import subprocess
     try:
         out = subprocess.run(["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
-                             capture_output=True, text=True, timeout=5).stdout.split()
+                             capture_output=True, encoding="utf-8", errors="replace", timeout=5).stdout.split()
         return max(float(x) for x in out) / 1024 if out else None
     except Exception:
         return None
@@ -299,7 +299,8 @@ class _Server(uvicorn.Server):
     async def startup(self, sockets=None) -> None:
         await super().startup(sockets=sockets)
         if self.started:
-            url = f"http://{self.config.host}:{self.config.port}"
+            scheme = "https" if self.config.ssl_certfile else "http"
+            url = f"{scheme}://{self.config.host}:{self.config.port}"
             loaded = ("model loaded" if self.holder._model is not None
                       else "model loads on the first request (use --preload to load it now)")
             log.info("READY - listening on %s (%s)", url, loaded)
@@ -339,16 +340,43 @@ def main() -> None:
                                                                str(Path(__file__).parent / "models")),
                         help="where models are downloaded to / looked up in (default: ./models, "
                              "or the ASR_MODELS_DIR env var)")
+    # same flags and env vars as llama-server, so one certificate serves both
+    parser.add_argument("--ssl-cert-file", default=os.environ.get("LLAMA_ARG_SSL_CERT_FILE"),
+                        help="PEM certificate to serve https with (default: LLAMA_ARG_SSL_CERT_FILE)")
+    parser.add_argument("--ssl-key-file", default=os.environ.get("LLAMA_ARG_SSL_KEY_FILE"),
+                        help="PEM private key to serve https with (default: LLAMA_ARG_SSL_KEY_FILE)")
+    parser.add_argument("--no-https", action="store_true",
+                        help="serve plain http (https is required otherwise)")
     args = parser.parse_args()
 
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     # stderr: unbuffered even when a GUI reads the output through a pipe
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [asr] %(message)s", force=True)
-    log.info("starting: model=%s device=%s compute=%s port=%d models-dir=%s", args.model, args.device,
-             args.compute_type, args.port, args.models_dir)
+    ssl_kw: dict = {}
+    if not args.no_https:
+        if not args.ssl_cert_file or not args.ssl_key_file:
+            log.error("https needs --ssl-cert-file and --ssl-key-file (or LLAMA_ARG_SSL_CERT_FILE / "
+                      "LLAMA_ARG_SSL_KEY_FILE); pass --no-https to serve plain http")
+            sys.exit(1)
+        for p in (args.ssl_cert_file, args.ssl_key_file):
+            if not Path(p).is_file():
+                log.error("TLS file not found: %s", p)
+                sys.exit(1)
+        ssl_kw = {"ssl_certfile": args.ssl_cert_file, "ssl_keyfile": args.ssl_key_file}
+    scheme = "https" if ssl_kw else "http"
+    log.info("starting: model=%s device=%s compute=%s port=%d %s models-dir=%s", args.model, args.device,
+             args.compute_type, args.port, scheme, args.models_dir)
+    if ssl_kw:
+        log.info("TLS certificate: %s", args.ssl_cert_file)
     # fail fast, before spending a minute loading a 3 GB model onto the GPU
     if _port_in_use(args.host, args.port):
         log.error("port %d on %s is already in use - is another asr-server running? "
-                  "Check http://%s:%d/health or pick another --port", args.port, args.host, args.host, args.port)
+                  "Check %s://%s:%d/health or pick another --port", args.port, args.host, scheme, args.host,
+                  args.port)
         sys.exit(1)
     holder = ModelHolder(args.model, args.device, args.compute_type, args.idle_unload,
                          Path(args.models_dir), args.vram_margin)
@@ -361,7 +389,7 @@ def main() -> None:
             if args.device == "cuda":
                 log.error("hint: no usable GPU / CUDA libraries? use --device auto or --device cpu")
             sys.exit(1)
-    config = uvicorn.Config(build_app(holder), host=args.host, port=args.port, log_level="warning")
+    config = uvicorn.Config(build_app(holder), host=args.host, port=args.port, log_level="warning", **ssl_kw)
     _Server(config, holder).run()
 
 

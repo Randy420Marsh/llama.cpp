@@ -13,8 +13,12 @@ project; this server only does speech.
               voice_library.py
     models    where each one lives: speech_paths.py
 
-    python server.py --no-https --lan    what the command center runs (port 8179)
-    python server.py                     https on 127.0.0.1:8179 (TLS default)
+    python server.py --lan    what the command center runs (https, port 8179)
+    python server.py          https on 127.0.0.1:8179 (TLS default)
+
+    The certificate is the one llama-server uses (--ssl-cert-file/--ssl-key-file
+    or LLAMA_ARG_SSL_CERT_FILE/LLAMA_ARG_SSL_KEY_FILE; run.bat defaults them to
+    C:\\AI\\ssl). Without one a self-signed certificate is generated.
 
 API
     GET  /health                          liveness (the command center probes it)
@@ -79,6 +83,18 @@ app.add_middleware(
     expose_headers=["X-TTS-Engine", "X-TTS-Voice", "X-TTS-Model", "X-TTS-Speed",
                     "X-TTS-Fallback", "X-TTS-Error"],
 )
+
+
+# The web UI is served cross-origin isolated (COEP: require-corp), so a plain
+# <audio src> to this server (a voice's reference clip) is blocked unless the
+# response opts in with Cross-Origin-Resource-Policy.
+@app.middleware("http")
+async def _corp_header(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "cross-origin")
+    return response
+
+
 _shutdown_done = False
 _port = DEFAULT_PORT
 
@@ -248,6 +264,34 @@ async def api_library_update(vid: str, req: Request):
         return {"ok": True, "voice": v}
     except KeyError:
         return _err(404, f"no voice '{vid}'")
+
+
+@app.post("/api/voices/library/{vid}/trim")
+async def api_library_trim(vid: str, req: Request):
+    """Body: {"start": s, "end": s, "tighten": bool, "retranscribe": bool}."""
+    body = await req.json()
+    try:
+        end = body.get("end")
+        v = await _run(voice_library.trim_voice, vid, float(body.get("start") or 0),
+                       None if end is None else float(end), bool(body.get("tighten")),
+                       bool(body.get("retranscribe")), _transcriber)
+        return {"ok": True, "voice": v}
+    except KeyError:
+        return _err(404, f"no voice '{vid}'")
+    except (ValueError, TypeError) as e:
+        return _err(400, str(e))
+    except Exception as e:
+        return _err(500, str(e))
+
+
+@app.post("/api/voices/library/{vid}/restore")
+async def api_library_restore(vid: str):
+    try:
+        return {"ok": True, "voice": await _run(voice_library.restore_voice, vid)}
+    except KeyError:
+        return _err(404, f"no voice '{vid}'")
+    except ValueError as e:
+        return _err(400, str(e))
 
 
 @app.delete("/api/voices/library/{vid}")
@@ -490,16 +534,19 @@ def main() -> None:
                     help="serve to the local network so phones/tablets can connect")
     # TLS is on by default: browsers only expose the microphone on a secure
     # origin, so plain http silently kills voice input everywhere except
-    # localhost. --no-https is there for the case where a client cannot cope
-    # with a self-signed certificate (and for the llama.cpp UI on plain http,
-    # which cannot call an https server with an untrusted certificate).
+    # localhost. Use the same trusted certificate as llama-server so the web UI
+    # (served over https) can call this server without a certificate warning.
     ap.add_argument("--https", action="store_true", default=True,
-                    help="serve TLS with a self-signed certificate, generated "
-                         "on first use (default)")
+                    help="serve TLS (default): llama-server's certificate when "
+                         "configured, else a self-signed one generated on first use")
     ap.add_argument("--no-https", dest="https", action="store_false",
                     help="serve plain http instead")
-    ap.add_argument("--cert", default=None, help="PEM certificate (implies --https)")
-    ap.add_argument("--key", default=None, help="PEM private key (implies --https)")
+    ap.add_argument("--cert", "--ssl-cert-file", dest="cert",
+                    default=os.environ.get("LLAMA_ARG_SSL_CERT_FILE"),
+                    help="PEM certificate (default: LLAMA_ARG_SSL_CERT_FILE)")
+    ap.add_argument("--key", "--ssl-key-file", dest="key",
+                    default=os.environ.get("LLAMA_ARG_SSL_KEY_FILE"),
+                    help="PEM private key (default: LLAMA_ARG_SSL_KEY_FILE)")
     ap.add_argument("--port", type=int, default=int(os.environ.get("TTS_PORT", DEFAULT_PORT)))
     ap.add_argument("--engine", default=os.environ.get("TTS_ENGINE", "piper"),
                     choices=sorted(tts_engines.ENGINES),
@@ -532,15 +579,29 @@ def main() -> None:
 
     ssl_kw: dict = {}
     scheme = "http"
-    if args.https or args.cert or args.key:
+    self_signed = False
+    if args.https:
+        if bool(args.cert) != bool(args.key):
+            print("[ERROR] give both --cert and --key (or both LLAMA_ARG_SSL_* "
+                  "variables), not just one", flush=True)
+            sys.exit(2)
         if args.cert and args.key:
             cert, key = Path(args.cert), Path(args.key)
+            for p in (cert, key):
+                if not p.is_file():
+                    print(f"[ERROR] TLS file not found: {p}", flush=True)
+                    sys.exit(2)
             note = "supplied"
         else:
             import certs_util
             cert, key, note = certs_util.ensure_cert()
+            self_signed = True
         ssl_kw = {"ssl_certfile": str(cert), "ssl_keyfile": str(key)}
         scheme = "https"
+        # The children on 8180/8181 take their certificate from these (see
+        # tts_engines._ssl_files), so --cert/--key reach them too.
+        os.environ["LLAMA_ARG_SSL_CERT_FILE"] = str(cert)
+        os.environ["LLAMA_ARG_SSL_KEY_FILE"] = str(key)
         print(f"[OK] TLS certificate {note}: {cert}", flush=True)
 
     if host in ("0.0.0.0", "::"):
@@ -549,7 +610,7 @@ def main() -> None:
         print(f"     by name:   {scheme}://{socket.gethostname().lower()}:{args.port}", flush=True)
     else:
         print(f"[OK] serving on {scheme}://{host}:{args.port}", flush=True)
-    if scheme == "https":
+    if self_signed:
         print("     the certificate is self-signed, so every browser shows a "
               "warning once -- accept it and the mic will work off-localhost")
 

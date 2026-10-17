@@ -41,6 +41,16 @@ if [ "${1:-}" = "--setup-only" ]; then
     exit 0
 fi
 
+# https: the server refuses plain http unless --no-https is given. Use the same
+# certificate as llama-server (LLAMA_ARG_SSL_*), defaulting to C:/AI/ssl on Windows.
+if [ -z "${LLAMA_ARG_SSL_CERT_FILE:-}" ] && [ -f C:/AI/ssl/cert.pem ]; then
+    export LLAMA_ARG_SSL_CERT_FILE=C:/AI/ssl/cert.pem
+fi
+if [ -z "${LLAMA_ARG_SSL_KEY_FILE:-}" ] && [ -f C:/AI/ssl/key.pem ]; then
+    export LLAMA_ARG_SSL_KEY_FILE=C:/AI/ssl/key.pem
+fi
+
 echo "[Start] asr_server.py $*"
+export PYTHONUTF8=1
 export PYTHONUNBUFFERED=1
 exec python -u asr_server.py "$@"

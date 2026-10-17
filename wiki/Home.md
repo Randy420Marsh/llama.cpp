@@ -36,12 +36,15 @@ audio goes to the transcription server as an in-memory WAV. No temp files are wr
 ## Quick start
 
 ```bash
+# 0. one certificate for both servers (https; its CA must be in the system trust store)
+export LLAMA_ARG_SSL_CERT_FILE=/etc/ssl/llama/cert.pem LLAMA_ARG_SSL_KEY_FILE=/etc/ssl/llama/key.pem
+
 # 1. start the speech-to-text server (tools/asr-server, faster-whisper; see Video-and-Audio section 7)
 bash tools/asr-server/run.sh --port 8178 --model large-v3 --compute-type float16 --preload
 
 # 2. start llama-server
 llama-server -m Qwen3.8-27B.gguf --mmproj mmproj.gguf -c 160000 --jinja \
-  --media-path /data/videos/ --asr-url http://127.0.0.1:8178
+  --media-path /data/videos/ --asr-url https://127.0.0.1:8178
 ```
 
 ```json

@@ -12,7 +12,10 @@ well under a second.  Override with:
     set STT_MODEL=distil-large-v3      more accurate local model, ~1.5 GB
     set STT_DEVICE=cpu                 keep the GPU entirely free
     set STT_USE_SERVER=off             never use the ASR server
-    set ASR_URL=http://host:port       where the ASR server listens
+    set ASR_URL=https://host:port      where the ASR server listens
+
+The ASR server serves https with the llama-server certificate; its CA must be
+trusted by the system store (Windows Root) or named with SSL_CERT_FILE.
 """
 from __future__ import annotations
 
@@ -31,7 +34,7 @@ MODEL = os.environ.get("STT_MODEL", "small.en")
 DEVICE = os.environ.get("STT_DEVICE", "")          # "" = auto
 COMPUTE = os.environ.get("STT_COMPUTE", "")        # "" = int8 variants
 
-ASR_URL = os.environ.get("ASR_URL", "http://127.0.0.1:8178")
+ASR_URL = os.environ.get("ASR_URL", "https://127.0.0.1:8178")
 USE_SERVER = os.environ.get("STT_USE_SERVER", "auto").lower() != "off"
 
 _model = None

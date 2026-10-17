@@ -13,6 +13,10 @@ ASR server (started first, same for all models):
 C:\AI\whisper-asr-server\run.bat --port 8178 --model large-v3 --compute-type float16 --preload
 ```
 
+These are the commands as they ran then, over plain http. The ASR server (`tools\asr-server`) now serves
+https only, with the llama-server certificate, so to repeat a run today use `--asr-url https://127.0.0.1:8178`
+(see [Voice](Voice#quick-start)).
+
 During the Nemotron AV run the ASR server was `--compute-type int8_float16`;
 the final matrix results use `float16`.
 

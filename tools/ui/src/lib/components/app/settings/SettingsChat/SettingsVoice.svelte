@@ -20,13 +20,17 @@
 		Pencil,
 		Play,
 		Power,
+		RotateCcw,
 		RotateCw,
+		Scissors,
 		Square,
 		Trash2,
 		Upload,
+		Volume2,
 		X
 	} from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
+	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Input } from '$lib/components/ui/input';
 	import Label from '$lib/components/ui/label/label.svelte';
 	import * as Select from '$lib/components/ui/select';
@@ -48,9 +52,11 @@
 		type LibraryVoice,
 		pickEngine,
 		resolveSpeechUrl,
+		restoreVoice,
 		type SpeechEngine,
 		type SpeechStatus,
 		startModelDownload,
+		trimVoice,
 		unloadSpeechModels,
 		updateVoice,
 		voiceAudioUrl
@@ -249,10 +255,22 @@
 	let newTranscript = $state('');
 	let saving = $state(false);
 	let fileInput = $state<HTMLInputElement | null>(null);
+	/** the speech server refuses a reference clip shorter than this (voice_library.MIN_SECONDS) */
+	const MIN_CLIP_S = 3;
 	let editing = $state<string | null>(null);
 	let editText = $state('');
+	let editName = $state('');
+	let editLanguage = $state('');
+	let trimStart = $state(0);
+	let trimEnd = $state(0);
+	let trimTighten = $state(false);
+	let trimRetranscribe = $state(true);
+	let trimming = $state(false);
+	// bumped after a trim or restore, so the browser fetches the new clip instead of its cached one
+	let clipVersion = $state<Record<string, number>>({});
 	let preview: HTMLAudioElement | null = null;
 	let previewing = $state<string | null>(null);
+	let sttAvailable = $derived(!!(status?.stt.server || status?.stt.installed));
 
 	function setClip(blob: Blob, name: string) {
 		if (clipUrl) URL.revokeObjectURL(clipUrl);
@@ -370,20 +388,82 @@
 		}
 	}
 
-	function playReference(id: string) {
+	/** Play a voice's reference clip; with `range`, only that part of it (the trim preview). */
+	function playReference(id: string, range?: { start: number; end: number }) {
 		preview?.pause();
+		const key = range ? `${id}#range` : id;
 
-		if (previewing === id) {
+		if (previewing === key) {
 			previewing = null;
 
 			return;
 		}
 
-		preview = new Audio(voiceAudioUrl(base, id));
-		previewing = id;
-		preview.onended = () => (previewing = null);
-		preview.onerror = () => (previewing = null);
-		void preview.play().catch(() => (previewing = null));
+		speechStore.stop();
+		const audio = new Audio();
+
+		// the page is cross-origin isolated (COEP: require-corp); a CORS request is
+		// what lets it load media from the speech server on another port
+		audio.crossOrigin = 'anonymous';
+		audio.src = `${voiceAudioUrl(base, id)}?v=${clipVersion[id] ?? 0}`;
+
+		if (range) {
+			// seeking before the metadata is in is ignored by some browsers
+			audio.onloadedmetadata = () => {
+				audio.currentTime = range.start;
+			};
+			audio.ontimeupdate = () => {
+				if (audio.currentTime >= range.end) {
+					audio.pause();
+
+					if (preview === audio) previewing = null;
+				}
+			};
+		}
+
+		preview = audio;
+		previewing = key;
+		const failed = (why: string) => {
+			if (preview !== audio) return;
+
+			previewing = null;
+			toast.error(`Could not play the reference clip: ${why}`);
+		};
+
+		audio.onended = () => {
+			if (preview === audio) previewing = null;
+		};
+		audio.onerror = () => failed(audio.error?.message || `media error ${audio.error?.code ?? ''}`);
+		void audio.play().catch((error) => {
+			// pause() before playback started rejects with AbortError; that is not a failure
+			if (!(error instanceof DOMException && error.name === 'AbortError')) failed(msg(error));
+		});
+	}
+
+	const sampleId = (id: string) => `voice-sample-${id}`;
+
+	/** Read the voice's own transcript in the cloned voice, to compare with the reference clip. */
+	function speakSample(v: LibraryVoice) {
+		if (speechStore.speakingId === sampleId(v.id)) {
+			speechStore.stop();
+
+			return;
+		}
+
+		preview?.pause();
+		previewing = null;
+		void speechStore.speak(
+			sampleId(v.id),
+			v.transcript,
+			{
+				engine: engine?.name,
+				language: v.language || languageSetting,
+				model: modelValid ? modelSetting : '',
+				speed,
+				voice: v.id
+			},
+			base
+		);
 	}
 
 	async function removeVoice(v: LibraryVoice) {
@@ -403,13 +483,82 @@
 		}
 	}
 
-	async function saveTranscript(v: LibraryVoice) {
+	function startEditing(v: LibraryVoice) {
+		if (editing === v.id) {
+			editing = null;
+
+			return;
+		}
+
+		editing = v.id;
+		editText = v.transcript;
+		editName = v.name;
+		editLanguage = v.language;
+		trimStart = 0;
+		trimEnd = v.duration_s;
+		trimTighten = false;
+		trimRetranscribe = sttAvailable;
+	}
+
+	async function saveEdits(v: LibraryVoice) {
 		try {
-			await updateVoice(base, v.id, { transcript: editText });
+			await updateVoice(base, v.id, {
+				language: editLanguage.trim(),
+				name: editName.trim(),
+				// only when changed: saving it marks the transcript as hand-edited
+				...(editText.trim() !== v.transcript.trim() ? { transcript: editText } : {})
+			});
 			editing = null;
 			await load();
+			void speechStore.refresh();
 		} catch (error) {
 			toast.error(`Could not save: ${msg(error)}`);
+		}
+	}
+
+	function afterClipChange(v: LibraryVoice) {
+		preview?.pause();
+		previewing = null;
+		clipVersion = { ...clipVersion, [v.id]: (clipVersion[v.id] ?? 0) + 1 };
+		editText = v.transcript;
+		trimStart = 0;
+		trimEnd = v.duration_s;
+	}
+
+	async function applyTrim(v: LibraryVoice) {
+		trimming = true;
+
+		try {
+			const trimmed = await trimVoice(base, v.id, {
+				end: trimEnd,
+				retranscribe: trimRetranscribe && sttAvailable,
+				start: trimStart,
+				tighten: trimTighten
+			});
+
+			afterClipChange(trimmed);
+			await load();
+			toast.success(
+				`Trimmed "${trimmed.name}" to ${trimmed.duration_s.toFixed(1)} s` +
+					(trimRetranscribe && sttAvailable ? '' : ' — check the transcript still matches')
+			);
+		} catch (error) {
+			toast.error(`Could not trim: ${msg(error)}`);
+		} finally {
+			trimming = false;
+		}
+	}
+
+	async function restoreClip(v: LibraryVoice) {
+		trimming = true;
+
+		try {
+			afterClipChange(await restoreVoice(base, v.id));
+			await load();
+		} catch (error) {
+			toast.error(`Could not restore: ${msg(error)}`);
+		} finally {
+			trimming = false;
 		}
 	}
 
@@ -504,6 +653,8 @@
 		recorder?.cancelRecording();
 		preview?.pause();
 
+		if (speechStore.speakingId?.startsWith('voice-sample-')) speechStore.stop();
+
 		if (clipUrl) URL.revokeObjectURL(clipUrl);
 	});
 </script>
@@ -540,7 +691,7 @@
 				</div>
 
 				<p class="text-xs text-muted-foreground">
-					Start it with <code>tools/speech-server/run.bat --no-https --lan</code> (or
+					Start it with <code>tools/speech-server/run.bat --lan</code> (or
 					<code>run.sh</code>), or set its URL above. {loadError}
 				</p>
 			{/if}
@@ -767,12 +918,27 @@
 								</Button>
 
 								<Button
-									onclick={() => {
-										editing = editing === v.id ? null : v.id;
-										editText = v.transcript;
-									}}
+									disabled={!engine?.cloning || !v.transcript}
+									onclick={() => speakSample(v)}
 									size="icon-sm"
-									title="Edit the transcript"
+									title={!engine?.cloning
+										? 'Pick an engine that clones voices first'
+										: v.transcript
+											? `Read this clip's transcript in the cloned voice (${engine.label})`
+											: 'Add a transcript first'}
+									variant="ghost"
+								>
+									{#if speechStore.speakingId === sampleId(v.id)}
+										{#if speechStore.loading}<LoaderCircle
+												class="h-3.5 w-3.5 animate-spin"
+											/>{:else}<Square class="h-3.5 w-3.5" />{/if}
+									{:else}<Volume2 class="h-3.5 w-3.5" />{/if}
+								</Button>
+
+								<Button
+									onclick={() => startEditing(v)}
+									size="icon-sm"
+									title="Edit: name, transcript, trim the clip"
 									variant="ghost"
 								>
 									<Pencil class="h-3.5 w-3.5" />
@@ -801,15 +967,167 @@
 							</div>
 
 							{#if editing === v.id}
-								<div class="space-y-2">
-									<Textarea bind:value={editText} class="min-h-[4rem] text-xs" />
+								<div class="space-y-3 rounded-md border p-3">
+									<div class="grid gap-3 sm:grid-cols-[1fr_8rem]">
+										<div class="space-y-1">
+											<Label class="text-xs" for="voice-edit-name-{v.id}">Name</Label>
+
+											<Input
+												bind:value={editName}
+												class="h-8 text-xs"
+												id="voice-edit-name-{v.id}"
+											/>
+										</div>
+
+										<div class="space-y-1">
+											<Label class="text-xs" for="voice-edit-lang-{v.id}">Language</Label>
+
+											<Input
+												bind:value={editLanguage}
+												class="h-8 text-xs"
+												id="voice-edit-lang-{v.id}"
+												placeholder="en, fi, …"
+											/>
+										</div>
+									</div>
+
+									<div class="space-y-1">
+										<Label class="text-xs" for="voice-edit-text-{v.id}">
+											Transcript — exactly what is said in the clip
+										</Label>
+
+										<Textarea
+											bind:value={editText}
+											class="min-h-[4rem] text-xs"
+											id="voice-edit-text-{v.id}"
+										/>
+									</div>
 
 									<div class="flex justify-end gap-2">
 										<Button onclick={() => (editing = null)} size="sm" variant="ghost"
 											>Cancel</Button
 										>
 
-										<Button onclick={() => saveTranscript(v)} size="sm">Save transcript</Button>
+										<Button disabled={!editName.trim()} onclick={() => saveEdits(v)} size="sm"
+											>Save</Button
+										>
+									</div>
+
+									<div class="space-y-2 border-t pt-3">
+										<p class="text-xs font-medium">
+											Trim the clip <span class="font-normal text-muted-foreground"
+												>({v.duration_s.toFixed(1)} s now)</span
+											>
+										</p>
+
+										<p class="text-xs text-muted-foreground">
+											6–15 s of clean, continuous speech with an accurate transcript clones best;
+											long clips and long pauses make Orpheus speak slowly.
+										</p>
+
+										<div class="grid grid-cols-2 gap-3">
+											<div class="space-y-1">
+												<Label class="text-xs" for="voice-trim-start-{v.id}"
+													>Start {trimStart.toFixed(1)} s</Label
+												>
+
+												<input
+													bind:value={trimStart}
+													class="w-full cursor-pointer accent-primary"
+													id="voice-trim-start-{v.id}"
+													max={v.duration_s}
+													min="0"
+													oninput={() => {
+														if (trimStart > trimEnd - MIN_CLIP_S)
+															trimStart = Math.max(0, trimEnd - MIN_CLIP_S);
+													}}
+													step="0.1"
+													type="range"
+												/>
+											</div>
+
+											<div class="space-y-1">
+												<Label class="text-xs" for="voice-trim-end-{v.id}"
+													>End {trimEnd.toFixed(1)} s</Label
+												>
+
+												<input
+													bind:value={trimEnd}
+													class="w-full cursor-pointer accent-primary"
+													id="voice-trim-end-{v.id}"
+													max={v.duration_s}
+													min="0"
+													oninput={() => {
+														if (trimEnd < trimStart + MIN_CLIP_S)
+															trimEnd = Math.min(v.duration_s, trimStart + MIN_CLIP_S);
+													}}
+													step="0.1"
+													type="range"
+												/>
+											</div>
+										</div>
+
+										<div class="flex flex-wrap gap-4">
+											<label class="flex items-center gap-1.5 text-xs text-muted-foreground">
+												<Checkbox
+													checked={trimTighten}
+													onCheckedChange={(checked) => (trimTighten = checked === true)}
+												/>
+												Shorten long pauses
+											</label>
+
+											<label
+												class="flex items-center gap-1.5 text-xs text-muted-foreground"
+												title={sttAvailable
+													? 'Transcribe the trimmed clip with the speech-to-text model'
+													: 'Install or start speech-to-text to re-transcribe automatically'}
+											>
+												<Checkbox
+													checked={trimRetranscribe && sttAvailable}
+													disabled={!sttAvailable}
+													onCheckedChange={(checked) => (trimRetranscribe = checked === true)}
+												/>
+												Re-transcribe
+											</label>
+										</div>
+
+										<div class="flex flex-wrap justify-end gap-2">
+											{#if v.has_original}
+												<Button
+													disabled={trimming}
+													onclick={() => restoreClip(v)}
+													size="sm"
+													title="Put back the clip as it was before the first trim"
+													variant="ghost"
+												>
+													<RotateCcw class="mr-1 h-3.5 w-3.5" /> Restore original
+												</Button>
+											{/if}
+
+											<Button
+												onclick={() => playReference(v.id, { end: trimEnd, start: trimStart })}
+												size="sm"
+												variant="outline"
+											>
+												{#if previewing === `${v.id}#range`}<Square
+														class="mr-1 h-3.5 w-3.5"
+													/>{:else}<Play class="mr-1 h-3.5 w-3.5" />{/if}
+												Preview selection
+											</Button>
+
+											<Button
+												disabled={trimming ||
+													trimEnd - trimStart < MIN_CLIP_S ||
+													(trimStart <= 0 && trimEnd >= v.duration_s && !trimTighten)}
+												onclick={() => applyTrim(v)}
+												size="sm"
+											>
+												{#if trimming}<LoaderCircle
+														class="mr-1 h-3.5 w-3.5 animate-spin"
+													/>{:else}<Scissors class="mr-1 h-3.5 w-3.5" />{/if}
+												Apply trim
+											</Button>
+										</div>
 									</div>
 								</div>
 							{:else if v.transcript}

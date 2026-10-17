@@ -153,3 +153,7 @@ a.out.*
 
 AGENTS.local.md
 .pi/SYSTEM.md
+
+# NVIDIA user-mode driver crash-log dump folder (created by the GPU driver in the
+# current working directory on TDR/crash; not part of the repo)
+NVIDIA Corporation/

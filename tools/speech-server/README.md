@@ -21,10 +21,10 @@ fetches it), and a llama.cpp build that has `llama-tts-server` (this fork:
 `cmake --build build --config Release --target llama-tts-server`).
 
 ```bat
-run.bat --no-https --lan          :: Windows
+run.bat --lan                     :: Windows
 ```
 ```bash
-./run.sh --no-https --lan         # Linux / macOS
+./run.sh --lan                    # Linux / macOS
 ```
 
 The first run creates `venv\` and installs the small base requirements (Piper,
@@ -33,9 +33,15 @@ Voice**: it finds this server on the same host, port 8179, and lists what can
 be spoken. Download the Qwen3-TTS model there (2.5 GB, one click) and create a
 voice under **Your voices**.
 
-`--no-https` because the llama.cpp web UI is usually served over plain http,
-and a page cannot call an https server whose certificate it does not trust.
-Without `--lan` the server only answers on this PC.
+The server speaks https with the same certificate as `llama-server`
+(`--ssl-cert-file` / `--ssl-key-file`, or the `LLAMA_ARG_SSL_CERT_FILE` /
+`LLAMA_ARG_SSL_KEY_FILE` environment variables; `run.bat` / `run.sh` default to
+`C:\AI\ssl\cert.pem` and `key.pem` when they exist). The web UI calls the
+speech server with its own scheme, so an https `llama-server` needs an https
+speech server, and one trusted certificate covers both. Without a certificate
+it falls back to a self-signed one, which the browser must accept once at
+`https://<pc>:8179`. `--no-https` serves plain http, only for a web UI that is
+itself plain http. Without `--lan` the server only answers on this PC.
 
 GPU engines that need PyTorch (Kokoro, Chatterbox, Orpheus) are optional:
 
@@ -186,6 +192,14 @@ The two children never share a port with anything else: on Windows a second
 `llama-server` can bind a port that is already in use, and requests then go to
 either process. The server refuses to start if 8179 is taken.
 
+Both children listen on 127.0.0.1 only and use https with this server's
+certificate whenever it has one (`--cert`/`--key` or the `LLAMA_ARG_SSL_*`
+variables); the self-signed fallback counts too. They are started with an
+environment stripped of every `LLAMA_ARG_*` variable, so a shell set up for the
+chat server cannot hand them its model, draft model, mmproj or host. To use an
+Orpheus server you run yourself, set `ORPHEUS_SERVER` to its full URL, scheme
+included (`https://127.0.0.1:8180`).
+
 ---
 
 ## 7. Configuration
@@ -203,13 +217,14 @@ either process. The server refuses to start if 8179 is taken.
 | `LLAMA_TTS_PORT` / `LLAMA_TTS_ARGS` | `8181` / — | port / extra flags for `llama-tts-server` |
 | `LLAMA_TTS_MODEL_DIRS` | `<cache>/gguf/qwen3-tts` | more folders with speech GGUFs (`;`-separated on Windows) |
 | `ORPHEUS_GGUF_DIR` | `<cache>/gguf/orpheus` | Orpheus quant folders (`;`-separated) |
-| `ORPHEUS_GGUF_PORT` / `ORPHEUS_SERVER` | `8180` / — | its llama-server port / use one you run yourself |
-| `ASR_URL` / `STT_USE_SERVER` | `http://127.0.0.1:8178` / `auto` | the ASR server / `off` to always use the local model |
+| `ORPHEUS_GGUF_PORT` / `ORPHEUS_SERVER` | `8180` / — | its llama-server port / use one you run yourself (full URL) |
+| `ORPHEUS_SNAC_DEVICE` | `auto` | where Orpheus' SNAC decoder runs: `cuda`, `cpu`, or `auto` = CPU when under 8 GB VRAM is free at load |
+| `ASR_URL` / `STT_USE_SERVER` | `https://127.0.0.1:8178` / `auto` | the ASR server / `off` to always use the local model |
 | `STT_MODEL` / `STT_DEVICE` | `small.en` / auto | local Whisper fallback |
 | `HF_TOKEN` | — | only for gated Hugging Face repositories |
 
-`server.py` flags: `--host`, `--lan`, `--port`, `--no-https` / `--https`,
-`--cert`, `--key`, `--engine`, `--setup-only`.
+`server.py` flags: `--host`, `--lan`, `--port`, `--https` (default) / `--no-https`,
+`--ssl-cert-file` (`--cert`), `--ssl-key-file` (`--key`), `--engine`, `--setup-only`.
 
 ---
 
@@ -250,6 +265,26 @@ accept its certificate once (open `https://<pc>:8179`).
 
 **"port 8179 is already in use".** Another speech server is running (the
 command center starts one). Stop it, or use `--port`.
+
+**Orpheus plays slower than real time, or slowed down.** Orpheus itself runs
+at about 3× real time on an RTX 5090 (Q8_0), and still about 2× while the
+chat model generates at the same time. When it falls below real time, the card
+is out of VRAM and Windows is paging into system memory (sysmem fallback),
+which slows every model on the card. Measured next to a 27B chat model
+(23.9 GB): the Orpheus child adds 4.8 GB at Q8_0, 4.0 GB at Q6_K and 3.4 GB at
+Q4_K_M, and SNAC on the GPU 1.2 GB. With the desktop that is ~30.6 of 32 GB
+before the ASR server or a browser. Fixes, in order:
+`ORPHEUS_SNAC_DEVICE=auto` (the default) already moves SNAC to the CPU on a
+full card, at ~0.4 s per 10 s of speech. Pick Q6_K (0.8 GB smaller and slightly
+faster), or turn off NVIDIA's *CUDA – Sysmem Fallback
+Policy* for llama-server so the problem shows up as an out-of-memory error
+instead of a slowdown. The speed slider is applied by the player (Orpheus has
+no native speed), so 1.3 plays faster, not slower.
+
+Each request retries once when the model hits its token limit without ending
+the speech. A frame with an out-of-range code is dropped alone, so the rest
+of the sentence still plays. The first SNAC decode is done at load, so the
+first sentence does not pay CUDA's ~4 s kernel set-up.
 
 **A GPU engine is "not installed".** Run `run-tts-setup.bat` / `.sh`. It
 installs torch from the CUDA 12.8 index first: `chatterbox-tts` pins an old

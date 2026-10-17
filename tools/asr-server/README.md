@@ -56,7 +56,7 @@ where startup is:
 ... INFO [asr] downloading large-v3 (~3 GB) from Systran/faster-whisper-large-v3 ...   (first run only, with progress bar)
 ... INFO [asr] loading large-v3 on cuda (float16) ...
 ... INFO [asr] loaded large-v3 on cuda (float16) in 4.2s
-... INFO [asr] READY - listening on http://127.0.0.1:8178 (model loaded)
+... INFO [asr] READY - listening on https://127.0.0.1:8178 (model loaded)
 ```
 
 A port that is already taken or a model that fails to load (no CUDA libraries, for example)
@@ -82,5 +82,12 @@ so lyrics are not dropped; stock Whisper hallucinations ("Thanks for watching") 
 ## Using it with llama-server
 
 ```bash
-llama-server -m model.gguf --mmproj mmproj.gguf --asr-url http://127.0.0.1:8178
+llama-server -m model.gguf --mmproj mmproj.gguf --asr-url https://127.0.0.1:8178
 ```
+
+The ASR server only serves https: it uses `--ssl-cert-file` / `--ssl-key-file` (or the
+`LLAMA_ARG_SSL_CERT_FILE` / `LLAMA_ARG_SSL_KEY_FILE` environment variables, which `run.bat` /
+`run.sh` default to `C:\AI\ssl\cert.pem` and `key.pem`) and exits with an error when there is
+no certificate. Clients (`llama-server --asr-url`, the speech server) verify it against the
+system trust store, so the certificate's CA must be trusted there. `--no-https` serves plain
+http instead.

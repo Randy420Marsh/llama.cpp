@@ -120,6 +120,8 @@ export interface LibraryVoice {
 	created: string;
 	file: string;
 	bytes: number;
+	/** trimmed: the clip from before the first trim can be restored */
+	has_original?: boolean;
 }
 
 export interface VoiceLibrary {
@@ -273,6 +275,32 @@ export async function updateVoice(
 				headers: { 'Content-Type': 'application/json' },
 				method: 'PATCH'
 			}
+		)
+	).voice;
+}
+
+/** Keep start..end seconds of a voice's clip; `tighten` shortens long pauses inside it. */
+export async function trimVoice(
+	base: string,
+	id: string,
+	opts: { start: number; end: number; tighten?: boolean; retranscribe?: boolean }
+): Promise<LibraryVoice> {
+	return (
+		await request<{ ok: boolean; voice: LibraryVoice }>(
+			base,
+			`/api/voices/library/${encodeURIComponent(id)}/trim`,
+			json(opts)
+		)
+	).voice;
+}
+
+/** Put back the clip and transcript from before the first trim. */
+export async function restoreVoice(base: string, id: string): Promise<LibraryVoice> {
+	return (
+		await request<{ ok: boolean; voice: LibraryVoice }>(
+			base,
+			`/api/voices/library/${encodeURIComponent(id)}/restore`,
+			{ method: 'POST' }
 		)
 	).voice;
 }

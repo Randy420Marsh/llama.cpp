@@ -1,5 +1,7 @@
 @echo off
 setlocal
+chcp 65001 >nul
+set "PYTHONUTF8=1"
 cd /d "%~dp0"
 
 rem ===== whisper-asr-server launcher (Windows) ==========================
@@ -40,6 +42,11 @@ if /i "%~1"=="--setup-only" (
     echo [OK] Setup complete - venv and requirements ready.
     exit /b 0
 )
+
+rem ===== https: the server refuses plain http unless --no-https is given. Use the
+rem same certificate as llama-server (LLAMA_ARG_SSL_*), defaulting to C:\AI\ssl.
+if not defined LLAMA_ARG_SSL_CERT_FILE if exist "C:\AI\ssl\cert.pem" set "LLAMA_ARG_SSL_CERT_FILE=C:\AI\ssl\cert.pem"
+if not defined LLAMA_ARG_SSL_KEY_FILE if exist "C:\AI\ssl\key.pem" set "LLAMA_ARG_SSL_KEY_FILE=C:\AI\ssl\key.pem"
 
 echo [Start] asr_server.py %*
 set PYTHONUNBUFFERED=1

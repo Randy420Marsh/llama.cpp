@@ -3,8 +3,9 @@
 # Text-to-speech, your own (cloned) voices, model downloads, speech-to-text.
 # First run: creates the uv venv and installs requirements. Later runs: skip
 # all that (stamp file) and start the server.
-#   ./run.sh --no-https --lan          http on the LAN, port 8179 (what the UI expects)
+#   ./run.sh --lan                     https on the LAN, port 8179 (what the UI expects)
 #   ./run.sh                           https on 127.0.0.1:8179 (TLS default)
+# The certificate is llama-server's (LLAMA_ARG_SSL_*), defaulting to C:/AI/ssl on Windows.
 #   ./run.sh --setup-only              set up, then exit
 #   ./run.sh --port 8179 --engine piper   forwarded to server.py
 # GPU engines (Kokoro, Chatterbox, Orpheus): ./run-tts-setup.sh once.
@@ -37,5 +38,13 @@ if [ "${1:-}" = "--setup-only" ]; then
     exit 0
 fi
 
+if [ -z "${LLAMA_ARG_SSL_CERT_FILE:-}" ] && [ -f C:/AI/ssl/cert.pem ]; then
+    export LLAMA_ARG_SSL_CERT_FILE=C:/AI/ssl/cert.pem
+fi
+if [ -z "${LLAMA_ARG_SSL_KEY_FILE:-}" ] && [ -f C:/AI/ssl/key.pem ]; then
+    export LLAMA_ARG_SSL_KEY_FILE=C:/AI/ssl/key.pem
+fi
+
 echo "[Setup] Starting server. The URL to open is printed below."
+export PYTHONUTF8=1
 exec python server.py "$@"

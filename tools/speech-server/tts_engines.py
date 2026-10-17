@@ -127,10 +127,65 @@ def guess_language(text: str, fallback: str = "") -> str:
     return fallback
 
 
+# ------------------------------------------------------------ child servers
+# The llama.cpp children (llama-tts-server, Orpheus's llama-server) serve https
+# with llama-server's certificate whenever LLAMA_ARG_SSL_CERT_FILE/KEY_FILE are
+# set (run.bat sets them). llama-server reads those variables on its own, so the
+# scheme here has to follow them or every health check talks http to a TLS port.
+def _ssl_files() -> tuple[str, str] | None:
+    cert = os.environ.get("LLAMA_ARG_SSL_CERT_FILE", "")
+    key = os.environ.get("LLAMA_ARG_SSL_KEY_FILE", "")
+    return (cert, key) if cert and key and Path(cert).is_file() and Path(key).is_file() else None
+
+
+def _child_scheme() -> str:
+    return "https" if _ssl_files() else "http"
+
+
+def _child_ssl_args() -> list[str]:
+    f = _ssl_files()
+    return ["--ssl-key-file", f[1], "--ssl-cert-file", f[0]] if f else []
+
+
+def _child_env() -> dict:
+    """Our environment minus LLAMA_ARG_*: a child gets everything it needs as
+    flags, and must not pick up the chat server's model, draft, mmproj or host
+    settings from a shell that was set up for it."""
+    return {k: v for k, v in os.environ.items() if not k.upper().startswith("LLAMA_ARG_")}
+
+
+_ssl_ctx = None
+
+
+def _tls_context():
+    """Verifying context that also trusts our own certificate, so loopback
+    https works even when its CA is not in the system store. PARTIAL_CHAIN lets
+    that leaf be a trust anchor (the default from Python 3.13; the venv is 3.11)."""
+    global _ssl_ctx
+    if _ssl_ctx is None:
+        import ssl
+        ctx = ssl.create_default_context()
+        f = _ssl_files()
+        if f:
+            try:
+                ctx.load_verify_locations(cafile=f[0])
+                ctx.verify_flags |= ssl.VERIFY_X509_PARTIAL_CHAIN
+            except Exception:
+                pass
+        _ssl_ctx = ctx
+    return _ssl_ctx
+
+
+def _urlopen(rq, timeout: float):
+    url = rq.full_url if isinstance(rq, urllib.request.Request) else rq
+    ctx = _tls_context() if str(url).startswith("https://") else None
+    return urllib.request.urlopen(rq, timeout=timeout, context=ctx)
+
+
 def _http_json(url: str, body: dict | None = None, timeout: float = 5.0):
     data = json.dumps(body).encode() if body is not None else None
     rq = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"} if data else {})
-    with urllib.request.urlopen(rq, timeout=timeout) as r:
+    with _urlopen(rq, timeout) as r:
         return json.loads(r.read())
 
 
@@ -142,7 +197,7 @@ def _wait_health(url: str, proc, seconds: int, log: Path | None) -> None:
                 tail = log.read_text(encoding="utf-8", errors="replace")[-1200:]
             raise RuntimeError(f"server exited with code {proc.returncode} before it was ready\n{tail}")
         try:
-            with urllib.request.urlopen(url + "/health", timeout=2) as r:
+            with _urlopen(url + "/health", 2) as r:
                 if r.status == 200:
                     return
         except Exception:
@@ -650,13 +705,15 @@ class LlamaCppEngine(Engine):
                     + ": download one in Settings -> Voice -> Models, or put <model>.gguf "
                       "and mmproj-<model>.gguf there")
             entry = files.get(model) or files[self.default_model()]
-            url = f"http://127.0.0.1:{cls.PORT}"
+            url = f"{_child_scheme()}://127.0.0.1:{cls.PORT}"
             if self.loaded and cls._proc_model == entry["id"]:
                 return url
-            if cls._proc is None and self._serving(url, entry):
-                print(f"[TTS] reusing llama-tts-server already on {url}", flush=True)
-                cls._proc_model = entry["id"]
-                return url
+            if cls._proc is None:
+                for u in (url, f"http://127.0.0.1:{cls.PORT}"):
+                    if self._serving(u, entry):
+                        print(f"[TTS] reusing llama-tts-server already on {u}", flush=True)
+                        cls._proc_model = entry["id"]
+                        return u
             self._stop()
             ok, why = self.available()
             if not ok:
@@ -666,10 +723,10 @@ class LlamaCppEngine(Engine):
             log = LOG_DIR / "llama-tts-server.log"
             args = [str(self.EXE), "-m", str(entry["model"]), "-mm", str(entry["mmproj"]),
                     "-ngl", "99", "-c", "4096", "--tts-voices-dir", str(VOICES_LIB),
-                    "--port", str(cls.PORT)] + self.EXTRA_ARGS
+                    "--port", str(cls.PORT)] + _child_ssl_args() + self.EXTRA_ARGS
             print(f"[TTS] starting llama-tts-server: {entry['label']} on {url}", flush=True)
             with open(log, "wb") as fh:
-                cls._proc = subprocess.Popen(args, stdout=fh, stderr=subprocess.STDOUT,
+                cls._proc = subprocess.Popen(args, stdout=fh, stderr=subprocess.STDOUT, env=_child_env(),
                                              creationflags=_NO_WINDOW, preexec_fn=proc_guard.PREEXEC)
             proc_guard.adopt(cls._proc)
             cls._proc_model = entry["id"]
@@ -716,7 +773,7 @@ class LlamaCppEngine(Engine):
         rq = urllib.request.Request(url + "/v1/audio/speech", data=body,
                                     headers={"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(rq, timeout=600) as r:
+            with _urlopen(rq, 600) as r:
                 data = r.read()
         except urllib.error.HTTPError as e:
             try:
@@ -730,7 +787,7 @@ class LlamaCppEngine(Engine):
 # ---------------------------------------------------------------- orpheus
 class OrpheusEngine(Engine):
     name, label = "orpheus", "Orpheus 3B"
-    gpu, vram_mb = True, 4200          # Q8_0 in llama-server + SNAC here
+    gpu, vram_mb = True, 6000          # measured: Q8_0 llama-server 4.8 GB + SNAC here 1.2 GB
     # Measured on a 5090, warm, one sentence:
     #   transformers bf16  RTF 1.53   (unusable -- slower than playback)
     #   llama.cpp F16      RTF 0.51
@@ -757,7 +814,7 @@ class OrpheusEngine(Engine):
     OFFICIAL = "canopylabs/orpheus-3b-0.1-ft"
     REPOS = [os.environ.get("ORPHEUS_REPO") or OFFICIAL]
     # Point at an already-running llama-server to skip the quant management:
-    #   set ORPHEUS_SERVER=http://127.0.0.1:8180
+    #   set ORPHEUS_SERVER=https://127.0.0.1:8180
     # Otherwise every orpheus*.gguf in GGUF_DIRS becomes a selectable quant and
     # we start/stop llama-server for it on demand, so quants can be compared by ear.
     SERVER = (os.environ.get("ORPHEUS_SERVER") or "").rstrip("/")
@@ -776,6 +833,7 @@ class OrpheusEngine(Engine):
 
     _proc = None            # llama-server we started
     _proc_quant = None      # which gguf it holds
+    _proc_url = None        # where it answers (http or https)
     _codes_cache: dict = {}
 
     @classmethod
@@ -825,18 +883,20 @@ class OrpheusEngine(Engine):
         if path is None:
             raise RuntimeError("no orpheus*.gguf in " + ", ".join(str(d) for d in self.GGUF_DIRS))
         quant = next((k for k, v in quants.items() if v == path), quant)
-        url = f"http://127.0.0.1:{self.GGUF_PORT}"
+        url = f"{_child_scheme()}://127.0.0.1:{self.GGUF_PORT}"
 
         cls = type(self)
         if cls._proc_quant == quant and cls._proc and cls._proc.poll() is None:
-            return url
+            return cls._proc_url
         # Someone may already be serving an Orpheus gguf on that port (a
         # hand-started llama-server, or a previous run of this process). Adopt
         # it instead of trying to bind the port a second time and failing.
-        if cls._proc is None and self._is_orpheus_server(url, path):
-            print(f"[TTS] reusing llama-server already on {url}", flush=True)
-            cls._proc_quant = quant
-            return url
+        if cls._proc is None:
+            for u in (url, f"http://127.0.0.1:{self.GGUF_PORT}"):
+                if self._is_orpheus_server(u, path):
+                    print(f"[TTS] reusing llama-server already on {u}", flush=True)
+                    cls._proc_quant, cls._proc_url = quant, u
+                    return u
         if cls._proc and cls._proc.poll() is None:
             print(f"[TTS] swapping orpheus gguf -> {quant}", flush=True)
             cls.stop_server()
@@ -847,14 +907,16 @@ class OrpheusEngine(Engine):
         log = LOG_DIR / "orpheus-llama-server.log"
         print(f"[TTS] starting llama-server for orpheus {quant} on {url}", flush=True)
         with open(log, "wb") as fh:
-            # 8192: a cloned voice puts its reference clip (~83 tokens a second) in the prompt
+            # 8192: a cloned voice puts its reference clip (~83 tokens a second) in the prompt.
+            # -np 1: one reader at a time; the default auto slots only split the cache.
             cls._proc = subprocess.Popen(
-                [self.LLAMA_SERVER_EXE, "-m", str(path), "--port", str(self.GGUF_PORT),
-                 "-ngl", "99", "-c", "8192", "--no-webui"],
-                stdout=fh, stderr=subprocess.STDOUT,
+                [self.LLAMA_SERVER_EXE, "-m", str(path), "--host", "127.0.0.1",
+                 "--port", str(self.GGUF_PORT), "-ngl", "99", "-c", "8192", "-np", "1",
+                 "-fa", "on", "--no-webui"] + _child_ssl_args(),
+                stdout=fh, stderr=subprocess.STDOUT, env=_child_env(),
                 creationflags=_NO_WINDOW, preexec_fn=proc_guard.PREEXEC)
         proc_guard.adopt(cls._proc)
-        cls._proc_quant = quant
+        cls._proc_quant, cls._proc_url = quant, url
         try:
             _wait_health(url, cls._proc, 120, log)
         except Exception:
@@ -884,7 +946,7 @@ class OrpheusEngine(Engine):
                 cls._proc.wait(timeout=15)
             except Exception:
                 cls._proc.kill()
-        cls._proc = cls._proc_quant = None
+        cls._proc = cls._proc_quant = cls._proc_url = None
 
     # Token ids from the Orpheus reference decoder / training data layout.
     START_HUMAN, EOT, END_HUMAN = 128259, 128009, 128260
@@ -924,18 +986,58 @@ class OrpheusEngine(Engine):
         return (not missing), ("missing: " + ", ".join(missing) + " (run run-tts-setup.bat)"
                                if missing else "")
 
+    # Where the SNAC codec runs: cuda | cpu | auto (the default). Measured on a
+    # 5090 box: on the GPU it holds ~1.2 GB (mostly this process's CUDA context)
+    # and decodes a 10 s sentence in ~0.03 s; on the CPU it takes ~0.4 s and no
+    # VRAM. Next to a 27B chat model (23.9 GB) plus the Q8_0 child (4.8 GB) that
+    # 1.2 GB is what tips the card into Windows' sysmem fallback, which slows
+    # every model on it far more than the CPU decode costs.
+    SNAC_DEVICE = (os.environ.get("ORPHEUS_SNAC_DEVICE") or "auto").strip().lower()
+    # Checked in _load, before _synth starts the child: room for the Q8_0
+    # child (4.8 GB) + SNAC (1.2 GB) + ~2 GB headroom for the desktop and ASR.
+    SNAC_MIN_FREE_MB = 8000
+
+    @classmethod
+    def _snac_device(cls) -> str:
+        import torch
+        if cls.SNAC_DEVICE == "cpu" or not torch.cuda.is_available():
+            return "cpu"
+        if cls.SNAC_DEVICE == "cuda":
+            return "cuda"
+        # nvidia-smi, not torch.cuda.mem_get_info(): asking torch creates the
+        # ~0.5 GB CUDA context this check exists to avoid.
+        try:
+            out = subprocess.run(["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+                                 capture_output=True, encoding="utf-8", errors="replace",
+                                 timeout=10, creationflags=_NO_WINDOW).stdout
+            free = int(out.split()[0])
+        except Exception:
+            return "cuda"
+        if free < cls.SNAC_MIN_FREE_MB:
+            print(f"[TTS] {free} MB VRAM free: SNAC decodes on the CPU "
+                  f"(set ORPHEUS_SNAC_DEVICE=cuda to override)", flush=True)
+            return "cpu"
+        return "cuda"
+
     def _load(self):
         import torch
         from snac import SNAC
-        dev = "cuda" if torch.cuda.is_available() else "cpu"
+        gguf = bool(self.SERVER or self.quants())
+        # The transformers fallback runs the whole 3B model on SNAC's device, so
+        # the VRAM-saving CPU choice only applies to the llama.cpp path.
+        dev = self._snac_device() if gguf else ("cuda" if torch.cuda.is_available() else "cpu")
         snac = SNAC.from_pretrained("hubertsiuzdak/snac_24khz").eval().to(dev)
+        # The first decode on a fresh CUDA context spends ~4 s setting up
+        # kernels (measured on an RTX 5090; later ones take ~30 ms): pay that
+        # here rather than as a stall before the first sentence is heard.
+        self._decode_codes([k * 4096 for k in range(7)], snac, dev)
 
         # Preferred path: a llama-server holding an Orpheus GGUF. Only the SNAC
-        # codec stays in this process (~80 MB); the server tokenizes the text
-        # and llama.cpp's decode loop is what makes this fast enough to use.
-        if self.SERVER or self.quants():
+        # codec stays in this process; the server tokenizes the text and
+        # llama.cpp's decode loop is what makes this fast enough to use.
+        if gguf:
             where = self.SERVER or f"{len(self.quants())} gguf quant(s)"
-            print(f"[TTS] orpheus via llama.cpp: {where}", flush=True)
+            print(f"[TTS] orpheus via llama.cpp: {where}; SNAC on {dev}", flush=True)
             return {"snac": snac, "dev": dev, "gguf": True}
 
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -1037,23 +1139,38 @@ class OrpheusEngine(Engine):
         server add its own BOS on top of the tokenizer's -- the double-BOS
         that makes Orpheus output garble.
         """
+        # Sampling as measured on an RTX 5090: 2.5-2.9 words/s at ~3x real time.
+        # A full-window repeat penalty halved the token rate for no gain, and the
+        # reference card's top_p 0.8 / penalty 1.3 sent cloned voices into
+        # minute-long drawls that ran to the limit.
         body = json.dumps({
             "prompt": ids, "n_predict": min(2600, 200 + 75 * len(text.split())),
             "temperature": temperature, "top_p": 0.95,
             "repeat_penalty": 1.1,          # >=1.1 required for stable output
             "cache_prompt": True, "stream": False,
         }).encode()
-        rq = urllib.request.Request(url + "/completion", data=body,
-                                    headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(rq, timeout=300) as r:
-            out = json.loads(r.read()).get("content", "")
-        # Audio tokens come back detokenised as <custom_token_N>, the vocab
-        # placing them 10 above the code value. The stream opens with control
-        # markers (<custom_token_5>, <custom_token_1>) that would decode to
-        # negative codes, so anything below the offset is dropped rather than
-        # allowed to poison the frame alignment.
-        return [c for c in (int(n) - 10 for n in
-                            re.findall(r"<custom_token_(\d+)>", out)) if c >= 0]
+        codes: list[int] = []
+        for attempt in range(2):
+            rq = urllib.request.Request(url + "/completion", data=body,
+                                        headers={"Content-Type": "application/json"})
+            with _urlopen(rq, 300) as r:
+                doc = json.loads(r.read())
+            # Audio tokens come back detokenised as <custom_token_N>, the vocab
+            # placing them 10 above the code value. The stream opens with
+            # control markers (<custom_token_5>, <custom_token_1>) and ends at
+            # EOS (<custom_token_2>) with a few stray tokens after it: cut at
+            # EOS, then drop anything below the offset rather than let it
+            # poison the frame alignment.
+            toks = [int(n) for n in re.findall(r"<custom_token_(\d+)>", doc.get("content", ""))]
+            if 2 in toks:
+                toks = toks[:toks.index(2)]
+            codes = [t - 10 for t in toks if t >= 10]
+            # No EOS within the budget means the model drifted into a drawl
+            # (slow, stretched speech that fills the whole window): sample once more.
+            if not (doc.get("stop_type") == "limit" or doc.get("stopped_limit")) or attempt:
+                break
+            print(f"[TTS] orpheus hit the {len(toks)}-token limit without ending; retrying", flush=True)
+        return codes
 
     def _synth(self, text, voice, speed, model="", language=""):
         import torch
@@ -1106,19 +1223,19 @@ class OrpheusEngine(Engine):
 
     def _decode_codes(self, codes, snac, dev) -> tuple[bytes, int]:
         import torch
-        codes = codes[:len(codes) // 7 * 7]            # 7 codes per SNAC frame
-        if not codes:
+        # 7 codes per SNAC frame, code k of a frame living in slot k*4096..k*4096+4095.
+        # A frame with a code outside its slot is malformed: drop that frame, not the sentence.
+        frames = [codes[i:i + 7] for i in range(0, len(codes) // 7 * 7, 7)]
+        frames = [f for f in frames if all(0 <= c - k * 4096 < 4096 for k, c in enumerate(f))]
+        if not frames:
             return b"", 24000
 
         # Orpheus interleaves the three SNAC layers 1/2/3/3/2/3/3 per frame.
         l1, l2, l3 = [], [], []
-        for i in range(len(codes) // 7):
-            f = codes[7 * i:7 * i + 7]
+        for f in frames:
             l1.append(f[0])
             l2 += [f[1] - 4096, f[4] - 4 * 4096]
             l3 += [f[2] - 2 * 4096, f[3] - 3 * 4096, f[5] - 5 * 4096, f[6] - 6 * 4096]
-        if min(min(l1), min(l2), min(l3)) < 0:         # malformed generation
-            return b"", 24000
 
         layers = [torch.tensor(x, device=dev).unsqueeze(0) for x in (l1, l2, l3)]
         with torch.no_grad():
@@ -1231,6 +1348,8 @@ threading.Thread(target=_idle_watch, name="tts-idle-unload", daemon=True).start(
 # speech_paths.py says, so a hand-placed copy and a downloaded one look the same.
 _Q3 = "ggml-org/Qwen3-TTS-12Hz-1.7B-Base-GGUF"
 _Q3B = "Qwen3-TTS-12Hz-1.7B-Base"
+_ORP_FT = "unsloth/orpheus-3b-0.1-ft-GGUF"
+_ORP_PT = "HorizonNexusAI/orpheus-3b-0.1-pretrained-GGUF"
 CATALOG: list[dict] = [
     {"engine": "llamacpp", "id": f"{_Q3B}-Q8_0", "label": "Qwen3-TTS 1.7B Q8_0", "repo": _Q3,
      "dir": NATIVE_DIR, "files": [f"{_Q3B}-Q8_0.gguf", f"mmproj-{_Q3B}-bf16.gguf"],
@@ -1241,19 +1360,53 @@ CATALOG: list[dict] = [
     {"engine": "llamacpp", "id": f"{_Q3B}-bf16", "label": "Qwen3-TTS 1.7B bf16", "repo": _Q3,
      "dir": NATIVE_DIR, "files": [f"{_Q3B}-bf16.gguf", f"mmproj-{_Q3B}-bf16.gguf"],
      "size_mb": 4142, "note": "full precision"},
+    # Orpheus 3B finetuned: the 8 preset voices. ids match OrpheusEngine.quants().
     {"engine": "orpheus", "id": "Q8_0", "label": "Orpheus 3B finetuned Q8_0",
-     "repo": "unsloth/orpheus-3b-0.1-ft-GGUF", "dir": ORPHEUS_DIR,
+     "repo": _ORP_FT, "dir": ORPHEUS_DIR,
      "files": ["orpheus-3b-0.1-ft-Q8_0.gguf"], "size_mb": 3516, "recommended": True,
      "note": "8 preset voices; community GGUF of canopylabs/orpheus-3b-0.1-ft"},
+    {"engine": "orpheus", "id": "Q6_K", "label": "Orpheus 3B finetuned Q6_K",
+     "repo": _ORP_FT, "dir": ORPHEUS_DIR,
+     "files": ["orpheus-3b-0.1-ft-Q6_K.gguf"], "size_mb": 2717,
+     "note": "between Q8_0 and Q4_K_M in quality and VRAM"},
     {"engine": "orpheus", "id": "Q4_K_M", "label": "Orpheus 3B finetuned Q4_K_M",
-     "repo": "unsloth/orpheus-3b-0.1-ft-GGUF", "dir": ORPHEUS_DIR,
+     "repo": _ORP_FT, "dir": ORPHEUS_DIR,
      "files": ["orpheus-3b-0.1-ft-Q4_K_M.gguf"], "size_mb": 2093,
      "note": "faster, slightly rougher"},
+    # Orpheus 3B pretrained: zero-shot cloning of your voices (needs the clip's
+    # transcript). The repo names its files unsloth.*.gguf, so each download is
+    # renamed to orpheus-3b-0.1-pretrained-<Q>.gguf -- what quants() looks for.
     {"engine": "orpheus", "id": "pretrained-Q8_0", "label": "Orpheus 3B pretrained Q8_0",
-     "repo": "HorizonNexusAI/orpheus-3b-0.1-pretrained-GGUF", "dir": ORPHEUS_DIR,
+     "repo": _ORP_PT, "dir": ORPHEUS_DIR,
      "files": [("unsloth.Q8_0.gguf", "orpheus-3b-0.1-pretrained-Q8_0.gguf")], "size_mb": 3516,
      "note": "clones your voices (needs the clip's transcript); community GGUF of "
              "canopylabs/orpheus-3b-0.1-pretrained"},
+    {"engine": "orpheus", "id": "pretrained-Q6_K", "label": "Orpheus 3B pretrained Q6_K",
+     "repo": _ORP_PT, "dir": ORPHEUS_DIR,
+     "files": [("unsloth.Q6_K.gguf", "orpheus-3b-0.1-pretrained-Q6_K.gguf")], "size_mb": 2717,
+     "note": "cloning, lighter than Q8_0; the cloning fallback picks it when Q8_0 is absent"},
+    # UD (imatrix) quants: best quality per MB. They exist only for the
+    # finetuned model, so they speak the 8 preset voices -- zero-shot cloning
+    # still needs a pretrained quant (no UD quants of the pretrained model
+    # exist on HF yet). Delete this group for a cloning-capable-only list.
+    # (The repo also has UD-IQ1_M/S, UD-IQ2_M/XXS, UD-IQ3_XXS, UD-Q2_K_XL,
+    # UD-Q3_K_XL if you want the smaller imatrix set.)
+    {"engine": "orpheus", "id": "UD-Q4_K_XL", "label": "Orpheus 3B finetuned UD-Q4_K_XL",
+     "repo": _ORP_FT, "dir": ORPHEUS_DIR,
+     "files": ["orpheus-3b-0.1-ft-UD-Q4_K_XL.gguf"], "size_mb": 2134,
+     "note": "imatrix XL, ~Q4_K_M size with better quality; preset voices only"},
+    {"engine": "orpheus", "id": "UD-Q5_K_XL", "label": "Orpheus 3B finetuned UD-Q5_K_XL",
+     "repo": _ORP_FT, "dir": ORPHEUS_DIR,
+     "files": ["orpheus-3b-0.1-ft-UD-Q5_K_XL.gguf"], "size_mb": 2401,
+     "note": "imatrix XL; preset voices only"},
+    {"engine": "orpheus", "id": "UD-Q6_K_XL", "label": "Orpheus 3B finetuned UD-Q6_K_XL",
+     "repo": _ORP_FT, "dir": ORPHEUS_DIR,
+     "files": ["orpheus-3b-0.1-ft-UD-Q6_K_XL.gguf"], "size_mb": 3062,
+     "note": "imatrix XL; preset voices only"},
+    {"engine": "orpheus", "id": "UD-Q8_K_XL", "label": "Orpheus 3B finetuned UD-Q8_K_XL",
+     "repo": _ORP_FT, "dir": ORPHEUS_DIR,
+     "files": ["orpheus-3b-0.1-ft-UD-Q8_K_XL.gguf"], "size_mb": 4381,
+     "note": "imatrix XL, highest quality; preset voices only"},
     {"engine": "orpheus", "id": "snac", "label": "SNAC 24 kHz codec (Orpheus needs it)",
      "hf_snapshot": "hubertsiuzdak/snac_24khz", "size_mb": 80},
     {"engine": "kokoro", "id": "kokoro", "label": "Kokoro-82M weights + all voices",
@@ -1261,6 +1414,7 @@ CATALOG: list[dict] = [
     {"engine": "chatterbox", "id": "chatterbox", "label": "Chatterbox weights",
      "hf_snapshot": "ResembleAI/chatterbox", "size_mb": 3000, "recommended": True},
 ]
+
 PIPER_CATALOG = [
     ("en_US-lessac-medium", 63), ("en_US-ryan-high", 121), ("en_US-amy-medium", 63),
     ("en_US-libritts_r-medium", 79), ("en_GB-alba-medium", 63),
