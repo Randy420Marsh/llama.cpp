@@ -204,15 +204,20 @@ long; `--max-steps N` for a quick listen-in.
 ### 3. Turn it into a GGUF the server can speak
 
 ```bash
-python convert_hf_to_gguf.py myvoice-lora-merged16bit --outname orpheus-myvoice-f16.gguf --f16
+python convert_hf_to_gguf.py myvoice-lora-merged16bit --outfile orpheus-myvoice-f16.gguf --outtype f16
+export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$HOME/cuda-staging/lib64   # the build/bin tools need the CUDA libs
 ./build/bin/llama-quantize orpheus-myvoice-f16.gguf orpheus-myvoice-q8_0.gguf Q8_0
+# a 4-bit quant is the size/quality middle ground (Q8_0 is ~3 GB, Q4_K_M ~2 GB;
+# on a big GPU Q8_0 is the better default):
+./build/bin/llama-quantize orpheus-myvoice-f16.gguf orpheus-myvoice-q4_k_m.gguf Q4_K_M
 cp orpheus-myvoice-q8_0.gguf <TTS_CACHE>/gguf/orpheus/
 ```
 
 The speech server picks up every `orpheus*.gguf` in the Orpheus model folder
 (see [Where models and voices go](#where-models-and-voices-go)); a file
 without `pretrained` in its name is treated as a *finetuned* quant, so the
-preset voices and the emotion tags apply to it. To have *your* voice as a
+preset voices and the emotion tags apply to it, at any quant the folder holds
+(Q8_0, Q6_K, Q4_K_M, ...). To have *your* voice as a
 named preset, put a 6-15 s clip of it in Settings → Voice → My voices under
 any name -- the finetuned model now speaks any such name in that voice, and
 the [emotion tags](#emotion-tags-orpheus) above work in it.

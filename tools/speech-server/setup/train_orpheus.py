@@ -246,8 +246,10 @@ def main() -> int:
     merge_dir = f"{args.out}-merged{args.merge}bit" if args.merge != "none" else None
     print("\nNext: make a GGUF (this repo):")
     if merge_dir:
-        print(f"  python convert_hf_to_gguf.py {merge_dir} --outname orpheus-myvoice-f16.gguf --f16")
+        print(f"  python convert_hf_to_gguf.py {merge_dir} --outfile orpheus-myvoice-f16.gguf --outtype f16")
+        print("  export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$HOME/cuda-staging/lib64   # build/bin needs the CUDA libs")
         print("  ./build/bin/llama-quantize orpheus-myvoice-f16.gguf orpheus-myvoice-q8_0.gguf Q8_0")
+        print("  # or 4-bit (~2 GB instead of ~3):  ... orpheus-myvoice-q4_k_m.gguf Q4_K_M")
     else:
         print("  merge first (--merge 16), or use the unsloth GGUF conversion notebook")
     print("then copy it next to the other Orpheus quants (Settings -> Voice -> Models shows the")
