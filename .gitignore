@@ -168,3 +168,4 @@ NVIDIA Corporation/
 _8080-restart.log.err
 tools/reasoning-bench/
 scripts/reasoning-bench*
+tools/reasoning-benchmark.py
