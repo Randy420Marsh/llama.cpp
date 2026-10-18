@@ -77,6 +77,10 @@ router mode with the Huihui preset.
 - **Your own voice:** record about ten seconds in Settings → Voice → Your voices. Nothing is trained:
   `llama-tts-server` ([tools/tts](tools/tts/README.md)) keeps Qwen3-TTS loaded and clones any voice in its
   voices folder, about 5x realtime.
+- **Emotion tags:** the Orpheus engine speaks `<laugh>`, `<sigh>` and the other
+  paralinguistic tags, and the speech server inserts the ones the text implies
+  on request (`"emotions": "auto"`, the default; roleplay lines get a sigh where
+  the text says "she sighed") - see [tools/speech-server/README.md](tools/speech-server/README.md).
 - **Dictation:** the 🎤 button types what you say (Whisper large-v3 through
   [tools/asr-server](tools/asr-server/)), or sends the recording to a model that can hear; never both.
 - The web UI's back end for all of this is the speech server in [tools/speech-server](tools/speech-server/)

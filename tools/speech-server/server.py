@@ -124,7 +124,7 @@ def api_status():
 # ------------------------------------------------------------------ speech
 @app.post("/v1/audio/speech")
 async def speech(req: Request):
-    """OpenAI-compatible text-to-speech: {input, voice, engine, model, language, speed} -> WAV."""
+    """OpenAI-compatible text-to-speech: {input, voice, engine, model, language, speed, emotions} -> WAV."""
     try:
         body = await req.json()
     except Exception:
@@ -138,6 +138,7 @@ async def speech(req: Request):
     voice = (body.get("voice") or "").strip()
     model = (body.get("model") or body.get("quality") or "").strip()
     language = (body.get("language") or "").strip()
+    emotions = str(body.get("emotions") or "auto").strip().lower()
     try:
         speed = float(body.get("speed") or 1.0)
     except (TypeError, ValueError):
@@ -145,9 +146,10 @@ async def speech(req: Request):
     eng = tts_engines.get(engine)
     headers = {"X-TTS-Engine": engine, "X-TTS-Voice": voice or "(default)",
                "X-TTS-Model": model or "(default)",
-               "X-TTS-Speed": "native" if eng.speed_native else "client"}
+               "X-TTS-Speed": "native" if eng.speed_native else "client",
+               "X-TTS-Emotions": emotions}
     try:
-        wav = await _run(tts_engines.synth_wav, text, voice, engine, speed, model, language)
+        wav = await _run(tts_engines.synth_wav, text, voice, engine, speed, model, language, emotions)
     except Exception as e:
         # Never let one bad sentence kill the read-aloud queue -- but say so
         # loudly. A silent fallback makes every broken voice sound like Piper's

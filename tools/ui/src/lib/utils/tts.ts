@@ -350,6 +350,8 @@ export interface SynthesisRequest {
 	model?: string;
 	language?: string;
 	speed?: number;
+	/** 'auto' (default): the speech server inserts emotion tags (<laugh>, <sigh>, ...) the text implies, for engines that understand them. 'off' sends the text as is */
+	emotions?: string;
 }
 
 export interface SynthesisResult {
@@ -374,6 +376,7 @@ export async function synthesize(
 			...json({
 				engine: req.engine || undefined,
 				input: text,
+				emotions: req.emotions || undefined,
 				language: req.language || undefined,
 				model: req.model || undefined,
 				speed: typeof req.speed === 'number' ? req.speed : 1,

@@ -11,7 +11,9 @@ sentence at a time, so the number that matters is time-to-first-audio on a
     kokoro      82M, ~1 GB VRAM, the quality/latency sweet spot
     chatterbox  350M, ~3 GB, cloning from a reference clip + emotion
     orpheus     3B via llama.cpp, most natural; its *pretrained* model clones
-                a voice from a clip and its transcript
+                a voice zero-shot from a clip and its transcript (no fine-tuning), and
+                its finetuned model takes emotion tags (<laugh>, <sigh>, ...), which
+                auto_emotion_tags() adds to roleplay-style text on request
 
 Only one GPU engine stays resident at a time: llama-server already owns most
 of the card, so loading a second engine evicts the first (see `select`), and
@@ -222,6 +224,7 @@ class Engine:
     speed_native = False        # the engine itself changes the speaking rate
     cloning = False             # can speak in a voice from the voice library
     cloning_experimental = False  # ...but often misses the voice
+    emotion_tags = False        # the engine understands <laugh>, <sigh>, ... in the text
     languages: list[str] = []   # [] = whatever the voice speaks
 
     def __init__(self) -> None:
@@ -282,12 +285,17 @@ class Engine:
                 pass
 
     def synth_wav(self, text: str, voice: str = "", speed: float = 1.0,
-                  model: str = "", language: str = "") -> bytes:
+                  model: str = "", language: str = "", emotions: str = "auto") -> bytes:
         text = (text or "").strip()
         if not is_speakable(text):
             return silence()
         self.load()
         with self._synth_lock:
+            # "auto": for engines that understand them (emotion_tags), insert the
+            # <laugh>/<sigh>/... the text implies; "off" leaves the text alone.
+            if self.emotion_tags and emotions != "off":
+                import emotion_tags
+                text = emotion_tags.auto_emotion_tags(text)
             pcm, sr = self._synth(text, voice or self.default_voice(), speed, model, language)
         self.touch()
         if not pcm:
@@ -803,6 +811,7 @@ class OrpheusEngine(Engine):
     # The model was never trained to clone; Canopy Labs say more examples help.
     cloning = True
     cloning_experimental = True
+    emotion_tags = True         # the finetuned model speaks the <laugh>, <sigh>, ... tags
 
     # The official weights are gated: they 401 unless HF_TOKEN belongs to an
     # account that clicked through at
@@ -1271,11 +1280,11 @@ def select(name: str) -> Engine:
 
 
 def synth_wav(text: str, voice: str = "", engine: str = "", speed: float = 1.0,
-              model: str = "", language: str = "") -> bytes:
+              model: str = "", language: str = "", emotions: str = "auto") -> bytes:
     eng = get(engine)
     if eng.gpu and not eng.loaded:
         select(eng.name)
-    return eng.synth_wav(text, voice, speed, model, language)
+    return eng.synth_wav(text, voice, speed, model, language, emotions)
 
 
 def unload_all() -> list[str]:

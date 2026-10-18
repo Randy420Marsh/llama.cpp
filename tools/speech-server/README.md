@@ -79,8 +79,10 @@ encoder that took no part in the generation (1.0 = identical):
 | Orpheus pretrained | 0.551 / 0.681 (missed) | 0.630 / 0.753 |
 
 Whisper transcribed every Qwen3-TTS output word for word. Orpheus' pretrained
-model was never trained to clone (its authors say more examples help); it
-stays available but is marked experimental. Use the llama.cpp engine.
+model clones zero-shot -- from the clip and its transcript, no fine-tuning -- but
+is the weakest of the two here (one of two voices missed entirely); it stays
+available but is marked experimental. Use the llama.cpp engine for your own
+voices.
 
 ---
 
@@ -235,7 +237,7 @@ included (`https://127.0.0.1:8180`).
 |---|---|---|
 | GET | `/health` | liveness |
 | GET | `/api/status` | engines, speech-to-text, folders, port |
-| POST | `/v1/audio/speech` | `{input, engine, voice, model, language, speed}` → WAV. Headers `X-TTS-Engine`, `X-TTS-Voice`, `X-TTS-Speed` (`native`: the engine applied the speed; `client`: the player should), `X-TTS-Fallback` + `X-TTS-Error` when Piper had to step in |
+| POST | `/v1/audio/speech` | `{input, engine, voice, model, language, speed, emotions}` → WAV. `emotions` (`"auto"` default / `"off"`): for engines that understand emotion tags, insert the `<laugh>`, `<sigh>` ... the text implies (below). Headers `X-TTS-Engine`, `X-TTS-Voice`, `X-TTS-Speed` (`native`: the engine applied the speed; `client`: the player should), `X-TTS-Emotions` (what was applied), `X-TTS-Fallback` + `X-TTS-Error` when Piper had to step in |
 | GET | `/api/tts/engines` | every engine with its voices and models |
 | POST | `/api/tts/select` · `/api/tts/unload` | load one engine · free VRAM (`{}` = all, `{"engine": "stt"}`) |
 | GET / POST | `/api/voices/library` | list · create (multipart `name`, `file`, `transcript`, `language`) |
@@ -252,6 +254,67 @@ curl -s localhost:8179/v1/audio/speech -H "Content-Type: application/json" \
 ```
 
 ---
+
+## 8a. Emotion tags (Orpheus)
+
+The Orpheus finetuned model speaks paralinguistic tags in the text -- `<laugh>`,
+`<chuckle>`, `<sigh>`, `<cough>`, `<sniffle>`, `<groan>`, `<yawn>`, `<gasp>` --
+which makes it the natural engine for roleplay. Roleplay text rarely carries the
+tags, so the server adds them on request:
+
+- **Automatic (the default).** `POST /v1/audio/speech` accepts `"emotions"`;
+  `"auto"` (or omitted) runs [emotion_tags.py](emotion_tags.py) over the text
+  first: it scans each sentence for cues -- `sighed`, `hehe`, `laughed`, `ugh`,
+  `(coughs)`, `whoa`, ... -- and inserts one tag per sentence, before the cue
+  word, so the model *performs* the line. Sentences already tagged by hand are
+  left alone. `"off"` sends the text unchanged.
+- **Manual.** any client (the web UI, llama.cpp's chat page, your own program)
+  can just write the tags into the text itself; the model reads them.
+
+```bash
+curl -s localhost:8179/v1/audio/speech -H "Content-Type: application/json" \
+  -d '{"input":"He sighed. \"Again.\"","engine":"orpheus","voice":"tara","emotions":"auto"}' \
+  -o reply.wav
+```
+
+The web UI's read-aloud sends `"emotions": "auto"` too (see
+`tools/ui/src/lib/utils/tts.ts`). Only the Orpheus engine understands the tags;
+other engines receive them as ordinary text, which is why the switch is per
+request rather than global.
+
+## 8b. Orpheus: zero-shot cloning, fine-tuning, and other local options
+
+The two Orpheus models and where they come from ([canopyai/Orpheus-TTS](https://github.com/canopyai/Orpheus-TTS),
+[canopylabs/orpheus-3b-0.1-ft](https://huggingface.co/canopylabs/orpheus-3b-0.1-ft)):
+
+- **Finetuned (`-ft`)** -- 8 preset voices (`tara`, `leah`, `jess`, `leo`, `dan`,
+  `mia`, `zac`, `zoe`, each language has its own set) and the emotion tags
+  above. This is the one this server's Orpheus engine speaks by default.
+- **Pretrained** -- zero-shot cloning: conditioned on one or more
+  text-speech pairs in the prompt, it continues in that voice without any
+  fine-tuning (the more pairs, the more reliably it holds the voice). This
+  server's "your voices" path uses it, one finished example turn per voice.
+
+Everything can stay fully local:
+
+- **llama.cpp (this server's default):** an Orpheus GGUF behind a
+  `llama-server` (section 4 lists the file names) plus the SNAC codec -- no
+  Python model server, the whole thing runs off the GGUF you already have.
+- **`orpheus-speech` (vLLM):** the upstream package, faster streaming on big
+  cards: `pip install orpheus-speech`, then `OrpheusModel(model_name=
+  "canopylabs/orpheus-tts-0.1-finetune-prod").generate_speech(prompt=...,
+  voice="tara")` (24 kHz WAV; if the KV-cache error or missing
+  `max_model_len` shows up, point `sys.path` at the repo's `orpheus_tts_pypi`).
+  `repetition_penalty >= 1.1` is required for stable output either way.
+- **No-GPU inference with llama.cpp** is described in the upstream repo's docs;
+  this server is that path, already wired up.
+
+**Fine-tuning (unsloth):** a text-only SFT on sequences of length 8192 in the
+same dataset format as pretraining; the upstream notes recommend starting from
+the finetuned model (not the pretrained one) for a new language or style, and
+avoid synthetic training audio (it maps to the same tokens and uses the
+codebook poorly). The `canopylabs/orpheus-3b-0.1-ft` model is the fine-tuned
+release.
 
 ## 9. Troubleshooting
 

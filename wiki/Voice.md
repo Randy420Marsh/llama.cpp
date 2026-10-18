@@ -89,8 +89,9 @@ by a speaker encoder that took no part in generating it (1.0 = identical):
 | Orpheus 3B pretrained Q8_0 | 0.551 / 0.681 (missed) | 0.630 / 0.753 |
 
 Whisper transcribed every output with the right words. Qwen3-TTS kept the voice across a 27-second, two-piece
-paragraph as well (0.947). Orpheus' pretrained model was never trained to clone; it is offered as
-*experimental*.
+paragraph as well (0.947). Orpheus' pretrained model clones zero-shot -- from the clip and its transcript,
+without fine-tuning -- but was the weakest of the two here (one of two voices missed entirely), so it is
+offered as *experimental*; Qwen3-TTS is the stronger cloning engine.
 
 ## Where models and voices go
 
@@ -116,6 +117,35 @@ the same way (press *Refresh*).
 
 Command line: `python tools/speech-server/setup/fetch_voices.py --list`, then the same script with no arguments
 (the recommended model of each usable engine) or with `engine/id` items.
+
+## Emotion tags (Orpheus)
+
+The Orpheus finetuned model performs paralinguistic tags in the text it speaks:
+`<laugh>`, `<chuckle>`, `<sigh>`, `<cough>`, `<sniffle>`, `<groan>`, `<yawn>`,
+`<gasp>`. For roleplay that is the difference between *saying* "she sighed" and
+actually sighing. The speech server inserts them on request: `POST
+/v1/audio/speech` takes `"emotions": "auto"` (the default) or `"off"`, and
+`emotion_tags.py` scans the text for cues (`sighed`, `hehe`, `(coughs)`, `ugh`,
+`whoa`, ...) and adds one tag per sentence, before the cue word; sentences that
+already carry a tag are left alone. The web UI's read-aloud sends `"auto"`.
+
+## Orpheus: models, zero-shot, fine-tuning, fully local
+
+- **Two models.** The finetuned one (`canopylabs/orpheus-3b-0.1-ft`) has 8
+  preset voices per language (`tara`, `leah`, `jess`, `leo`, `dan`, `mia`,
+  `zac`, `zoe`) and the emotion tags. The pretrained one clones zero-shot:
+  conditioned on one or more text-speech pairs it continues in that voice with
+  no fine-tuning -- more pairs, more reliable; that is the "your voices" path
+  above.
+- **Fully local.** This server runs the Orpheus GGUF behind a `llama-server`
+  plus the SNAC codec (section "Where models and voices go"), so nothing needs
+  a Python model server. The upstream [`canopyai/Orpheus-TTS`](https://github.com/canopyai/Orpheus-TTS)
+  offers `orpheus-speech` (vLLM, faster streaming on large cards, 24 kHz
+  output, `repetition_penalty >= 1.1` required) and a llama.cpp no-GPU path.
+- **Fine-tuning.** Text-only SFT (unsloth, 8192-token sequences, the
+  pretraining dataset format); the upstream notes recommend starting from the
+  finetuned model for a new language or style and avoiding synthetic training
+  audio. The `canopylabs/orpheus-3b-0.1-ft` release is that fine-tuned model.
 
 ## llama-tts-server on its own
 
