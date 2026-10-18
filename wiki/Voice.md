@@ -146,6 +146,85 @@ already carry a tag are left alone. The web UI's read-aloud sends `"auto"`.
   pretraining dataset format); the upstream notes recommend starting from the
   finetuned model for a new language or style and avoiding synthetic training
   audio. The `canopylabs/orpheus-3b-0.1-ft` release is that fine-tuned model.
+  A full local guide is below.
+
+## Training your own Orpheus voice
+
+The zero-shot path above keeps the voice *in* a clip; training moves it *into*
+the model, so every preset voice (or a name of your own) speaks in it, with
+the emotion tags on top. Everything below runs on this machine; the reference
+recipe is the [unsloth Orpheus notebook](https://colab.research.google.com/github/unslothai/notebooks/blob/main/nb/Orpheus_(3B)-TTS.ipynb),
+and two scripts in [tools/speech-server/setup](tools/speech-server/setup/)
+do the mechanical parts:
+
+### 1. Record the dataset
+
+Record 6-15 s clips of natural speech, one speaker, quiet room -- the same
+clips the [Your voices](#your-own-voice) page wants, only more of them. The
+[Orpheus-TTS authors](https://github.com/canopyai/Orpheus-TTS) report usable
+results from **~50 clips** and a strong result from **~300 per speaker**.
+Vary the content (reading, conversation, different emotions) so the model
+learns the voice rather than one phrase, and avoid synthetic/TTS audio -- it
+maps to the same audio tokens every time and uses the codebook poorly.
+
+Pair each clip with what is said in it (sidecar `.txt` file, or one
+`transcripts.txt` with one line per clip in filename order). The audio is the
+signal; the text teaches the model what is being said so it can say *new*
+words in that voice.
+
+```bash
+cd tools/speech-server
+python setup/make_orpheus_dataset.py ~/orpheus-clips --out myvoice-dataset --jsonl myvoice.jsonl
+# -> myvoice.jsonl: {"text": "...", "audio": ".../clip-0000.wav"}
+# -> myvoice-dataset/: the same as a Hugging Face dataset (text + audio columns)
+```
+
+### 2. Train (Unsloth, LoRA)
+
+A CUDA GPU (the model is ~3 GB; LoRA rank 64 + 8-bit AdamW fits in ~10-12 GB):
+
+```bash
+pip install unsloth snac "datasets>=3.4.1,<4.0.0"
+python tools/speech-server/setup/train_orpheus.py \
+    --dataset myvoice.jsonl --out myvoice-lora --merge 16 --epochs 3
+```
+
+This follows the notebook: start from `unsloth/orpheus-3b-0.1-ft` (the
+finetuned model -- the authors recommend it over the pretrained one for a new
+voice), LoRA `r=64` on all linear projections, batch 1 with gradient
+accumulation 4, `adamw_8bit`, lr 2e-4, gradient checkpointing. The audio is
+tokenized with the SNAC codec (`hubertsiuzdak/snac_24khz`) and interleaved 7
+codes per frame, exactly as the model was trained. Output: `myvoice-lora/`
+(the adapters) and `myvoice-lora-merged16bit/` (the full model, float16).
+
+Tuning: more data beats more epochs; `--rank 128` for a harder-to-steal
+voice; `--seq-len 8192` matches the authors' pretraining if your clips are
+long; `--max-steps N` for a quick listen-in.
+
+### 3. Turn it into a GGUF the server can speak
+
+```bash
+python convert_hf_to_gguf.py myvoice-lora-merged16bit --outname orpheus-myvoice-f16.gguf --f16
+./build/bin/llama-quantize orpheus-myvoice-f16.gguf orpheus-myvoice-q8_0.gguf Q8_0
+cp orpheus-myvoice-q8_0.gguf <TTS_CACHE>/gguf/orpheus/
+```
+
+The speech server picks up every `orpheus*.gguf` in the Orpheus model folder
+(see [Where models and voices go](#where-models-and-voices-go)); a file
+without `pretrained` in its name is treated as a *finetuned* quant, so the
+preset voices and the emotion tags apply to it. To have *your* voice as a
+named preset, put a 6-15 s clip of it in Settings → Voice → My voices under
+any name -- the finetuned model now speaks any such name in that voice, and
+the [emotion tags](#emotion-tags-orpheus) above work in it.
+
+### What if I don't want to train?
+
+The zero-shot path (one clip per voice, [above](#your-own-voice)) is what
+the server does by default and needs no training at all; training only makes
+sense when you want a *named, always-available* voice or many speakers in
+one model. The upstream repo also offers `orpheus-speech` (vLLM) for fast
+streaming and the authors' own `finetune/` script if you prefer their
+pipeline over unsloth.
 
 ## llama-tts-server on its own
 

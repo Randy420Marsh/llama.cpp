@@ -316,6 +316,15 @@ avoid synthetic training audio (it maps to the same tokens and uses the
 codebook poorly). The `canopylabs/orpheus-3b-0.1-ft` model is the fine-tuned
 release.
 
+To train one locally on your own recordings, use the two scripts in
+[setup/](setup/): `make_orpheus_dataset.py` turns a folder of clips (+
+transcripts) into the Hugging Face dataset the model trains on (the authors
+report ~50 clips for a usable result, ~300 per speaker for a strong one), and
+`train_orpheus.py` runs the Unsloth LoRA training on a CUDA GPU and prints
+the GGUF commands to follow. The full guide, with data recommendations and
+how the result plugs back into this server, is
+[wiki/Voice.md → Training your own Orpheus voice](../../wiki/Voice.md).
+
 ## 9. Troubleshooting
 
 **Settings → Voice says "No speech server".** The server is not running, or
