@@ -45,6 +45,12 @@ if [ -z "${LLAMA_ARG_SSL_KEY_FILE:-}" ] && [ -f C:/AI/ssl/key.pem ]; then
     export LLAMA_ARG_SSL_KEY_FILE=C:/AI/ssl/key.pem
 fi
 
+# All speech models live in the one shared model folder (the Windows layout,
+# mirrored on Linux): /home/john/AI/tts-models. Override with TTS_CACHE.
+if [ -z "${TTS_CACHE:-}" ] && [ -d /home/john/AI/tts-models ]; then
+    export TTS_CACHE=/home/john/AI/tts-models
+fi
+
 echo "[Setup] Starting server. The URL to open is printed below."
 export PYTHONUTF8=1
 exec python server.py "$@"

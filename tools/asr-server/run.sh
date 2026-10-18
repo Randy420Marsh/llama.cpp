@@ -50,6 +50,11 @@ if [ -z "${LLAMA_ARG_SSL_KEY_FILE:-}" ] && [ -f C:/AI/ssl/key.pem ]; then
     export LLAMA_ARG_SSL_KEY_FILE=C:/AI/ssl/key.pem
 fi
 
+# Whisper models live in the one shared model folder (the Windows layout, mirrored
+# on Linux): /home/john/AI/tts-models/whisper. Override with ASR_MODELS_DIR.
+if [ -z "${ASR_MODELS_DIR:-}" ] && [ -d /home/john/AI/tts-models/whisper ]; then
+    export ASR_MODELS_DIR=/home/john/AI/tts-models/whisper
+fi
 echo "[Start] asr_server.py $*"
 export PYTHONUTF8=1
 export PYTHONUNBUFFERED=1
