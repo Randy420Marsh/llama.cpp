@@ -13,6 +13,8 @@ takes dictation. Those changes stay in the fork; everything else behaves as upst
   models go.
 - [Media pipeline internals](Media-Pipeline-Internals): how a video part becomes model input, the design
   choices behind it, and the changed files.
+- [Model launch configs](Model-Launch-Configs): the exact `llama-server` command per verified model
+  (paths as variables), and the ASR server start line.
 
 ## What the fork adds
 
@@ -29,9 +31,20 @@ takes dictation. Those changes stay in the fork; everything else behaves as upst
 | Speech out | `llama-tts-server` keeps Qwen3-TTS / Pocket-TTS loaded behind `/v1/audio/speech`; any clip in its voices folder is a voice (zero-shot cloning, ~5× realtime) |
 | Web UI voice | Settings → Voice lists engines, voices and models from the speech server, records your own voice, downloads models; 🔊 reads a reply sentence by sentence |
 | Dictation | the 🎤 button types what you say (or sends the recording, never both); Settings → Microphone |
+| Reasoning | `GET /props` reports `reasoning_efforts` (the levels the loaded model offers, for a client picker); `reasoning_effort` is a per-request field; `--reasoning-preserve` keeps the trace across turns |
 
 All media stays in memory. ffmpeg runs over pipes, the prepared clips are in-memory FFV1/Matroska, and
 audio goes to the transcription server as an in-memory WAV. No temp files are written.
+
+## Models
+
+The features are verified on the models in [Model-Launch-Configs](Model-Launch-Configs), the exact
+`llama-server` command for each (paths as variables): **Huihui-Qwen3.8-27B** (abliterated, NVFP4;
+native video, vision, reasoning levels, MTP speculative decoding - 20/20 on the capability matrix),
+Gemma4-12B (native audio + vision, MTP), Gemma-4-26B-A4B (vision), and Nemotron-3-Nano-Omni-30B-A3B
+(vision; combined audio+vision via a converted mmproj). MTP speculative decoding
+(`--spec-type draft-mtp`) and the multi-model router (`--models-preset`) are upstream capabilities
+that the launch configs use together with the media flags.
 
 ## Quick start
 

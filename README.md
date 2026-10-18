@@ -36,6 +36,10 @@ base64. The main additions:
   [tools/asr-server/](tools/asr-server/) (faster-whisper, `run.bat` / `run.sh` launcher).
 - **Clients:** works from the web UI and the OpenAI endpoint, with reasoning on or off. Verified on
   Qwen3.8-27B, Gemma4-12B, Gemma4-26B-A4B and Nemotron-3-Nano-Omni.
+- **Reasoning:** a model that supports reasoning levels (Qwen3.8-27B, Gemma4-12B and friends) takes
+  `reasoning_effort` per request, and `GET /props` reports the levels that model offers
+  (`reasoning_efforts`), so a client can offer them in a picker. `--reasoning-preserve` keeps the
+  reasoning trace in the context of a continuing conversation (off by default; it costs tokens).
 
 ```json
 {"type": "video_url", "video_url": {"url": "file://talk.mp4",
@@ -46,6 +50,24 @@ Guide, options, tested models and internals: [wiki/Home.md](wiki/Home.md), with 
 [wiki/Video-and-Audio.md](wiki/Video-and-Audio.md). Flags and request fields are also listed in
 [tools/server/README.md](tools/server/README.md). Build settings (Windows CUDA with OpenSSL, Ubuntu) and
 the run-time requirements (ffmpeg, the speech-to-text server) are in [wiki/Building.md](wiki/Building.md).
+
+### Models: what the fork is tested with
+
+The features above are verified on the models in [wiki/Model-Launch-Configs.md](wiki/Model-Launch-Configs.md),
+which carries the exact `llama-server` command for each (media path, ASR URL and the vision / MTP
+projectors as variables, not paths on this machine):
+
+| Model | Notes | Result |
+|---|---|---|
+| **Huihui-Qwen3.8-27B** (abliterated, NVFP4) | the flagship: native video, vision, reasoning levels, MTP speculative decoding | 20/20 |
+| Gemma4-12B (QAT uncensored) | native audio + vision, MTP | 8/8 |
+| Gemma-4-26B-A4B (ultra-uncensored) | vision, transcripts | 8/8 |
+| Nemotron-3-Nano-Omni-30B-A3B | vision; combined audio+vision via a converted mmproj | 7/8 |
+
+MTP speculative decoding (`--spec-type draft-mtp`, an MTP head as the draft model) and the multi-model
+router (`--models-preset`, one server, many models, load on request) are upstream capabilities; the
+fork's launch configs use them together with the media flags, and Aegis's LLM engine runs exactly this
+router mode with the Huihui preset.
 
 ### Voice: read aloud, your own voice, dictation
 

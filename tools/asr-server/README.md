@@ -44,6 +44,37 @@ bash tools/asr-server/run.sh --port 8178 --model large-v3 --compute-type float16
 | `--preload` | off | load the model at startup |
 | `--models-dir DIR` | `./models` | where models are downloaded to / looked up in (env `ASR_MODELS_DIR`); point it at an existing download to avoid fetching the model again |
 
+## Model choice and optimization
+
+The default is multilingual `large-v3`. From testing on this machine (see
+[wiki/Video-and-Audio.md](../../wiki/Video-and-Audio.md) section 8):
+
+- **`large-v3`** is the accuracy reference - multilingual, the most accurate model in this
+  family. `large-v3-turbo` was measurably less accurate, and the `distil-*` models are
+  English-only, so they are not the right choice for a server that transcribes whatever the
+  user says.
+- **GPU, and only when it fits.** `--device auto` loads `large-v3` on the GPU only when at
+  least `--vram-margin` (default 2 GB) of VRAM stays free afterwards, so a `llama-server` that
+  shares the card is not squeezed into a re-quantization or a slowdown; otherwise - or when the
+  GPU load fails (missing CUDA libraries, for example) - it runs on the CPU. The check repeats
+  on every (re)load, and `GET /health` reports the device and compute type the model actually
+  runs on.
+- **Precision.** On the GPU, `float16` (about 3 GB VRAM) is the most accurate; `int8_float16`
+  (about 1.6 GB) is the trade-down when VRAM is tight. On the CPU there is no float16, so the
+  server switches to full-precision `float32` (or `int8_float32` for the int8 setting) rather
+  than silently running a lossy int8 - accuracy over the small speed gain.
+- **VRAM budget for a busy card.** `--idle-unload N` releases the model from VRAM N seconds
+  after the last transcription, so a long-running chat server gets the card back for
+  generation; `0` keeps it resident for instant transcripts.
+- **Transcript quality.** Voice activity detection runs by default and automatically falls back
+  to a no-VAD pass when it would remove most of a track that is clearly not silent (so lyrics
+  are not dropped); the stock Whisper hallucinations ("Thanks for watching", repeated phrases)
+  are filtered out of the segments, and every segment keeps its `start` / `end` time, which is
+  what `llama-server` turns into the timestamped transcript.
+
+`GET /health` (`{"state": "loading" | "loaded" | ...}`) and the startup log lines are the
+source of truth for what actually happened on a given run.
+
 ## Startup output
 
 The launcher and server report each step, so a console (or a GUI reading the output) shows
