@@ -5,7 +5,8 @@
 # all that (stamp file) and start the server.
 #   ./run.sh --lan                     https on the LAN, port 8179 (what the UI expects)
 #   ./run.sh                           https on 127.0.0.1:8179 (TLS default)
-# The certificate is llama-server's (LLAMA_ARG_SSL_*), defaulting to C:/AI/ssl on Windows.
+# The certificate is llama-server's (LLAMA_ARG_SSL_*), defaulting to $AI_ROOT/ssl
+# (AI_ROOT: C:/AI on Windows, $HOME/AI on Linux; see the block below).
 #   ./run.sh --setup-only              set up, then exit
 #   ./run.sh --port 8179 --engine piper   forwarded to server.py
 # GPU engines (Kokoro, Chatterbox, Orpheus): ./run-tts-setup.sh once.
@@ -38,17 +39,24 @@ if [ "${1:-}" = "--setup-only" ]; then
     exit 0
 fi
 
-if [ -z "${LLAMA_ARG_SSL_CERT_FILE:-}" ] && [ -f C:/AI/ssl/cert.pem ]; then
-    export LLAMA_ARG_SSL_CERT_FILE=C:/AI/ssl/cert.pem
+# AI_ROOT: the shared AI folder. Defaults to C:/AI (the usual Windows layout,
+# mirrored on Linux), else $HOME/AI. Override with AI_ROOT, SSL_DIR or TTS_CACHE.
+if [ -z "${AI_ROOT:-}" ]; then
+    if [ -d C:/AI ]; then AI_ROOT=C:/AI; else AI_ROOT="$HOME/AI"; fi
 fi
-if [ -z "${LLAMA_ARG_SSL_KEY_FILE:-}" ] && [ -f C:/AI/ssl/key.pem ]; then
-    export LLAMA_ARG_SSL_KEY_FILE=C:/AI/ssl/key.pem
+SSL_DIR="${SSL_DIR:-$AI_ROOT/ssl}"
+
+if [ -z "${LLAMA_ARG_SSL_CERT_FILE:-}" ] && [ -f "$SSL_DIR/cert.pem" ]; then
+    export LLAMA_ARG_SSL_CERT_FILE="$SSL_DIR/cert.pem"
+fi
+if [ -z "${LLAMA_ARG_SSL_KEY_FILE:-}" ] && [ -f "$SSL_DIR/key.pem" ]; then
+    export LLAMA_ARG_SSL_KEY_FILE="$SSL_DIR/key.pem"
 fi
 
-# All speech models live in the one shared model folder (the Windows layout,
-# mirrored on Linux): /home/john/AI/tts-models. Override with TTS_CACHE.
-if [ -z "${TTS_CACHE:-}" ] && [ -d /home/john/AI/tts-models ]; then
-    export TTS_CACHE=/home/john/AI/tts-models
+# All speech models live in the one shared model folder: $AI_ROOT/tts-models.
+# Override with TTS_CACHE.
+if [ -z "${TTS_CACHE:-}" ] && [ -d "$AI_ROOT/tts-models" ]; then
+    export TTS_CACHE="$AI_ROOT/tts-models"
 fi
 
 echo "[Setup] Starting server. The URL to open is printed below."

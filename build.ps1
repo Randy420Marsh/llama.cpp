@@ -5,9 +5,10 @@
 #   .\build.ps1 -Clean      delete build\ first
 #   .\build.ps1 -Cpu        without CUDA
 #   .\build.ps1 -Generator "Visual Studio 18 2026"
-# CUDA: $env:CUDA_PATH when it holds nvcc, else the newest toolkit under
-# C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA. GPU architecture: what nvidia-smi
-# reports (12.0 -> 120), else "native". OpenSSL (https): C:\Program Files\OpenSSL.
+# CUDA: $env:CUDA_PATH (or the newest toolkit under $env:CUDA_ROOT, default the
+# standard "NVIDIA GPU Computing Toolkit\CUDA" install) when it holds nvcc.
+# GPU architecture: what nvidia-smi reports (12.0 -> 120), else "native".
+# OpenSSL (https): $env:OPENSSL_ROOT, default "C:\Program Files\OpenSSL".
 # Node >= 20.19 builds the UI; with an older or no Node a pinned Node is fetched once into
 # %LOCALAPPDATA%\llama.cpp-build.
 param(
@@ -52,7 +53,8 @@ if (-not $Cpu) {
     if ($env:CUDA_PATH -and (Test-Path "$env:CUDA_PATH\bin\nvcc.exe")) {
         $cuda = $env:CUDA_PATH
     } else {
-        $root = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA"
+        # $env:CUDA_ROOT points at a folder of toolkits; default the standard install
+        $root = if ($env:CUDA_ROOT) { $env:CUDA_ROOT } else { "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA" }
         if (Test-Path $root) {
             $cuda = Get-ChildItem $root -Directory | Where-Object { Test-Path "$($_.FullName)\bin\nvcc.exe" } |
                 Sort-Object { [version]($_.Name.TrimStart("v")) } | Select-Object -Last 1 -ExpandProperty FullName
@@ -77,7 +79,8 @@ if (-not $Cpu) {
 }
 
 $sslArgs = @()
-if (Test-Path "C:\Program Files\OpenSSL") { $sslArgs = @("-DOPENSSL_ROOT_DIR=C:\Program Files\OpenSSL") }
+$sslRoot = if ($env:OPENSSL_ROOT) { $env:OPENSSL_ROOT } else { "C:\Program Files\OpenSSL" }
+if (Test-Path $sslRoot) { $sslArgs = @("-DOPENSSL_ROOT_DIR=$sslRoot") }
 
 # ===== Configure and build
 if ($Clean -and (Test-Path build)) { Remove-Item -Recurse -Force build }

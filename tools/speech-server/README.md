@@ -36,7 +36,7 @@ voice under **Your voices**.
 The server speaks https with the same certificate as `llama-server`
 (`--ssl-cert-file` / `--ssl-key-file`, or the `LLAMA_ARG_SSL_CERT_FILE` /
 `LLAMA_ARG_SSL_KEY_FILE` environment variables; `run.bat` / `run.sh` default to
-`C:\AI\ssl\cert.pem` and `key.pem` when they exist). The web UI calls the
+`%AI_ROOT%\ssl\cert.pem` and `key.pem` when they exist, where AI_ROOT is `C:\AI` on Windows or `$HOME/AI` on Linux). The web UI calls the
 speech server with its own scheme, so an https `llama-server` needs an https
 speech server, and one trusted certificate covers both. Without a certificate
 it falls back to a self-signed one, which the browser must accept once at
@@ -116,7 +116,7 @@ folder name.
 ## 4. Where the models go
 
 Everything lives under one cache folder, `TTS_CACHE`. Default: `models\` next
-to `server.py`, or `C:\AI\tts-models` when that exists. Settings → Voice →
+to `server.py`, or `%AI_ROOT%\tts-models` when that exists (AI_ROOT: `C:\AI` on Windows, `$HOME/AI` on Linux; override with the `AI_ROOT` / `TTS_CACHE` variables). Settings → Voice →
 Models shows the folder of every engine and downloads into it; files you copy
 in by hand are found the same way (press *Refresh*).
 
@@ -206,7 +206,8 @@ included (`https://127.0.0.1:8180`).
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `TTS_CACHE` | `models\` next to server.py (or `C:\AI\tts-models` if present) | every model and voice |
+| `TTS_CACHE` | `models\` next to server.py (or `%AI_ROOT%\tts-models` if present) | every model and voice |
+| `AI_ROOT` | `C:\AI` (Windows) / `$HOME/AI` (Linux) | the shared AI folder the defaults live under |
 | `TTS_VOICES_DIR` | `<cache>/voices` | your voices |
 | `TTS_PORT` | `8179` | listening port (`--port` wins) |
 | `TTS_ENGINE` | `piper` | engine for requests that name none |

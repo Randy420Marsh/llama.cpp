@@ -160,3 +160,11 @@ AGENTS.local.md
 # NVIDIA user-mode driver crash-log dump folder (created by the GPU driver in the
 # current working directory on TDR/crash; not part of the repo)
 NVIDIA Corporation/
+
+# local logs and the reasoning-bench scratch tool (kept outside git, see
+# ProjectAegis all-logs/ for reference copies)
+*.log
+*.err
+_8080-restart.log.err
+tools/reasoning-bench/
+scripts/reasoning-bench*

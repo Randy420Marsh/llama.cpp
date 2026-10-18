@@ -82,7 +82,7 @@ joins the feeder thread. On POSIX the child's exit turns the blocked write into 
 
 ## Test tools
 
-The test tools live outside the repo, in `C:\AI\video-pipeline-tests`:
+The test tools live outside the repo, in `%AI_ROOT%\video-pipeline-tests` (AI_ROOT: `C:\AI` on Windows, `$HOME/AI` on Linux):
 
 | Script | Purpose |
 |---|---|

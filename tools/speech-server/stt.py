@@ -1,8 +1,8 @@
 """
 Speech-to-text for the mic button and clip transcripts.
 
-When the shared ASR server answers (C:\\AI\\whisper-asr-server, the llama.cpp
-fork's tools/asr-server, faster-whisper large-v3, the one llama-server's
+When the shared ASR server answers (the repo's tools/asr-server, faster-whisper
+large-v3, the one llama-server's
 --asr-url uses), audio goes there: multilingual, more accurate, and no second
 Whisper model in VRAM. Otherwise a local faster-whisper model is loaded here,
 sized for a card that is already mostly full: the default is a small int8

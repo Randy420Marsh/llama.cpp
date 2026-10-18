@@ -17,8 +17,8 @@ project; this server only does speech.
     python server.py          https on 127.0.0.1:8179 (TLS default)
 
     The certificate is the one llama-server uses (--ssl-cert-file/--ssl-key-file
-    or LLAMA_ARG_SSL_CERT_FILE/LLAMA_ARG_SSL_KEY_FILE; run.bat defaults them to
-    C:\\AI\\ssl). Without one a self-signed certificate is generated.
+    or LLAMA_ARG_SSL_CERT_FILE/LLAMA_ARG_SSL_KEY_FILE; run.bat / run.sh default them
+    to %AI_ROOT%\\ssl, AI_ROOT being C:\\AI on Windows or $HOME/AI on Linux). Without one a self-signed certificate is generated.
 
 API
     GET  /health                          liveness (the command center probes it)

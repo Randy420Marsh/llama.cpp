@@ -30,9 +30,9 @@ work:
 3. **Speech server**: `tools\speech-server\run.bat --lan` (Linux: `./run.sh --lan`).
    The first run creates its Python environment ([uv](https://docs.astral.sh/uv/) must be on `PATH`).
 4. **llama-server** as always, e.g. `llama-server -m model.gguf --host 0.0.0.0 --port 8080 --asr-url https://127.0.0.1:8178
-   --ssl-key-file C:\AI\ssl\key.pem --ssl-cert-file C:\AI\ssl\cert.pem`.
+   --ssl-key-file %AI_ROOT%\ssl\key.pem --ssl-cert-file %AI_ROOT%\ssl\cert.pem`.
    All three servers use https with the same certificate: the launchers of the ASR and speech servers default to
-   `C:\AI\ssl\cert.pem` / `key.pem` (or the `LLAMA_ARG_SSL_CERT_FILE` / `LLAMA_ARG_SSL_KEY_FILE` variables).
+   `%AI_ROOT%\ssl\cert.pem` / `key.pem` (or the `LLAMA_ARG_SSL_CERT_FILE` / `LLAMA_ARG_SSL_KEY_FILE` variables; AI_ROOT is `C:\AI` on Windows, `$HOME/AI` on Linux).
 5. Open `https://<pc>:8080` → **Settings → Voice**:
    * **Models** → *Download* "Qwen3-TTS 1.7B Q8_0" (2.5 GB);
    * **Your voices** → *Record* → read the passage on screen → *Stop* → name → *Save voice*;

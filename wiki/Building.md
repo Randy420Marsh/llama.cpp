@@ -24,29 +24,43 @@ Requirements: Visual Studio 2022 with the C++ workload, the CUDA Toolkit, and Op
 OpenSSL from source (Strawberry Perl and NASM on `PATH`, in an "x64 Native Tools" prompt run as administrator):
 
 ```bat
-cd C:\openssl-4.0.1
+cd <your-openssl-source>
 perl Configure VC-WIN64A
 nmake
 nmake install
 ```
 
-This installs to `C:\Program Files\OpenSSL`. Without NASM, add `no-asm` to the `Configure` line (slower crypto).
+This installs OpenSSL under `C:\Program Files\OpenSSL` by default; without NASM, add `no-asm` to the `Configure` line (slower crypto). The build scripts pick it up automatically (override with `OPENSSL_ROOT` / `-DOPENSSL_ROOT_DIR`).
 
 Configure and build llama.cpp:
 
 ```bat
-cd C:\AI\llama.cpp
-call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
-set TORCH_CUDA_ARCH_LIST=12.0
-set CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3
-set CUDA_HOME=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3
+cd <this repo>
+call "<Visual Studio 2022 install>\VC\Auxiliary\Build\vcvarsall.bat" x64
+set CUDA_PATH=<path to a CUDA toolkit that has bin\nvcc.exe>
+set CUDA_HOME=%CUDA_PATH%
 
 rmdir /S /Q build
 
-cmake -B build -G "Visual Studio 17 2022" -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120 -DGGML_CUDA_FORCE_MMQ=ON -DGGML_CUDA_FA_QUANTS=all -DOPENSSL_ROOT_DIR="C:\Program Files\OpenSSL"
+cmake -B build -G "Visual Studio 17 2022" -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120 -DGGML_CUDA_FORCE_MMQ=ON -DGGML_CUDA_FA_QUANTS=all -DOPENSSL_ROOT_DIR="<OpenSSL root>"
 
 cmake --build build --config Release --parallel
 ```
+
+The same build is one line with the repo's own script:
+
+```bat
+build.bat
+```
+
+`build.bat` (a wrapper for `build.ps1`) finds the newest CUDA toolkit under
+`%CUDA_ROOT%` (default the standard `NVIDIA GPU Computing Toolkit\CUDA` install;
+`CUDA_PATH` wins), detects the GPU architecture from `nvidia-smi` (Blackwell
+RTX 5090 = `120`), finds OpenSSL under `%OPENSSL_ROOT%` (default
+`C:\Program Files\OpenSSL`), and builds the web UI from `tools\ui` so the
+server carries this fork's voice/TTS/STT settings. On Linux the equivalent is
+`./build.sh` (CUDA auto-detected; `CUDA_HOME` / `CUDA_ARCH` override; the sm_120
+RTX 5090 build needs CUDA 12.8+).
 
 The binaries are in `build\bin\Release\` (`llama-server.exe`, `llama-cli.exe`, ...).
 

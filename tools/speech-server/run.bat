@@ -10,7 +10,8 @@ rem First run: creates the uv venv and installs requirements. Later runs:
 rem skip all that (stamp file) and start the server immediately.
 rem   run.bat --lan               ...what the command center runs: https, LAN, port 8179
 rem   run.bat                     ...https on 127.0.0.1:8179 (TLS default)
-rem The certificate is llama-server's (LLAMA_ARG_SSL_*), defaulting to C:\AI\ssl.
+rem The certificate is llama-server's (LLAMA_ARG_SSL_*), defaulting to %AI_ROOT%\ssl
+rem (AI_ROOT: C:\AI by default, %USERPROFILE%\AI otherwise; see the block below).
 rem   run.bat --setup-only        ...set up, then exit
 rem   run.bat --port 8179 --engine piper   ...forwarded to server.py
 rem GPU engines (Kokoro, Chatterbox, Orpheus): run-tts-setup.bat once.
@@ -43,8 +44,13 @@ if /i "%~1"=="--setup-only" (
     exit /b 0
 )
 
-if not defined LLAMA_ARG_SSL_CERT_FILE if exist "C:\AI\ssl\cert.pem" set "LLAMA_ARG_SSL_CERT_FILE=C:\AI\ssl\cert.pem"
-if not defined LLAMA_ARG_SSL_KEY_FILE if exist "C:\AI\ssl\key.pem" set "LLAMA_ARG_SSL_KEY_FILE=C:\AI\ssl\key.pem"
+rem AI_ROOT: the shared AI folder (C:\AI by default; set it, or SSL_DIR, to override).
+if not defined AI_ROOT (
+    if exist "C:\AI" (set "AI_ROOT=C:\AI") else (set "AI_ROOT=%USERPROFILE%\AI")
+)
+if not defined SSL_DIR set "SSL_DIR=%AI_ROOT%\ssl"
+if not defined LLAMA_ARG_SSL_CERT_FILE if exist "%SSL_DIR%\cert.pem" set "LLAMA_ARG_SSL_CERT_FILE=%SSL_DIR%\cert.pem"
+if not defined LLAMA_ARG_SSL_KEY_FILE if exist "%SSL_DIR%\key.pem" set "LLAMA_ARG_SSL_KEY_FILE=%SSL_DIR%\key.pem"
 
 echo [Setup] Starting server. The URL to open is printed below.
 python server.py %*

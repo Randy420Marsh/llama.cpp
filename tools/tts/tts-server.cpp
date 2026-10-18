@@ -5,7 +5,7 @@
 //
 //   llama-tts-server -m Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf \
 //       -mm mmproj-Qwen3-TTS-12Hz-1.7B-Base-bf16.gguf \
-//       --tts-voices-dir C:\AI\tts-models\voices --port 8181
+//       --tts-voices-dir %AI_ROOT%\tts-models\voices --port 8181   (AI_ROOT: C:\AI or $HOME/AI)
 //
 // Zero-shot voice cloning needs no training: every audio file in the voices
 // directory is a voice, used as the speaker reference (`--tts-speaker-file` of

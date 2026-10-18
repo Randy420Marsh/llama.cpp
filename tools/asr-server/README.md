@@ -86,8 +86,7 @@ llama-server -m model.gguf --mmproj mmproj.gguf --asr-url https://127.0.0.1:8178
 ```
 
 The ASR server only serves https: it uses `--ssl-cert-file` / `--ssl-key-file` (or the
-`LLAMA_ARG_SSL_CERT_FILE` / `LLAMA_ARG_SSL_KEY_FILE` environment variables, which `run.bat` /
-`run.sh` default to `C:\AI\ssl\cert.pem` and `key.pem`) and exits with an error when there is
+`LLAMA_ARG_SSL_CERT_FILE` / `LLAMA_ARG_SSL_KEY_FILE` environment variables, which `run.bat` / `run.sh` default to `%AI_ROOT%\ssl\cert.pem` and `key.pem`; AI_ROOT is `C:\AI` on Windows, `$HOME/AI` on Linux) and exits with an error when there is
 no certificate. Clients (`llama-server --asr-url`, the speech server) verify it against the
 system trust store, so the certificate's CA must be trusted there. `--no-https` serves plain
 http instead.

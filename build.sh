@@ -6,10 +6,11 @@
 # GGML_CUDA + all-quant flash-attention + forced MMQ, tuned for a Blackwell
 # RTX 5090. It can be run manually:
 #
-#     cd /home/john/AI/llama.cpp && ./build.sh
+#     cd <this repo> && ./build.sh
 #
 # Tunables (all optional, override on the command line):
 #     CUDA_HOME=/path/to/cuda   force a specific CUDA toolkit (bin/nvcc + lib64)
+#     CUDA_ARCH=120            GPU compute architecture (default 120 = RTX 5090)
 #     JOBS=16                  parallel build jobs (default: all cores)
 #     KEEP_BUILD=1             don't wipe the existing build/ before configuring
 #
@@ -75,7 +76,7 @@ cmake -B build \
     -DGGML_CUDA_FORCE_MMQ=ON \
     -DGGML_CUDA_FORCE_CUBLAS=OFF \
     -DGGML_CUDA_PEER_MAX_BATCH_SIZE=128 \
-    -DCMAKE_CUDA_ARCHITECTURES="120" \
+    -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCH:-120}" \
     -DCMAKE_CUDA_COMPILER="$NVCC" \
     -DCMAKE_INSTALL_RPATH="${CUDA_PATH}/lib64;\$ORIGIN" \
     -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \

@@ -24,14 +24,15 @@ Requirements:
   default in the CMake build;
 - for transcripts, an OpenAI-compatible speech-to-text server (see [7](#7-audio-native-or-transcript)).
 
-Example (Qwen3.8-27B with its MTP head, 160k context, local files under `C:\media\`, transcripts):
+Example (Qwen3.8-27B with its MTP head, 160k context, local media files, transcripts):
 
 ```powershell
+$aiRoot = "C:\AI"   # the shared AI folder ($HOME/AI on Linux; set MEDIA_DIR / SSL_DIR to override)
 llama-server -m Qwen3.8-27B-huihui-NVFP4.gguf --mmproj mmproj-huihui.gguf `
   --spec-type draft-mtp --spec-draft-ngl 99 --spec-draft-n-max 3 `
   -ngl 99 -fa on --jinja -c 160000 --host 127.0.0.1 --port 8080 `
-  --media-path C:\media\ --asr-url https://127.0.0.1:8178 `
-  --ssl-key-file C:\AI\ssl\key.pem --ssl-cert-file C:\AI\ssl\cert.pem
+  --media-path "$aiRoot\media" --asr-url https://127.0.0.1:8178 `
+  --ssl-key-file "$aiRoot\ssl\key.pem" --ssl-cert-file "$aiRoot\ssl\cert.pem"
 ```
 
 At startup the server logs what it measured from the mmproj, for example

@@ -2,8 +2,10 @@
 Where every speech model and voice lives. One place, so the engines, the voice
 library, the model downloader and the documentation all agree.
 
-    %TTS_CACHE%                       default: C:\\AI\\tts-models if it exists,
+    %TTS_CACHE%                       default: %AI_ROOT%\\tts-models if it exists,
                                       else models\\ next to server.py
+  AI_ROOT                              C:\\AI if it exists, else %USERPROFILE%\\AI
+                                      (the shared AI folder; override with AI_ROOT)
       piper\\        <voice>.onnx + <voice>.onnx.json      Piper voices
       gguf\\
         qwen3-tts\\  <model>.gguf + mmproj-<model>.gguf    llama.cpp speech (llama-tts-server)
@@ -28,13 +30,23 @@ from pathlib import Path
 APP_ROOT = Path(__file__).resolve().parent
 
 
+def _ai_root() -> Path:
+    """AI_ROOT: the shared AI folder. C:\\AI if it exists, else %USERPROFILE%\\AI."""
+    env = os.environ.get("AI_ROOT", "").strip()
+    if env:
+        return Path(env).expanduser()
+    if os.name == "nt" and Path("C:/AI").is_dir():
+        return Path("C:/AI")
+    return Path.home() / "AI"
+
+
 def _cache_root() -> Path:
-    """TTS_CACHE, else an existing shared C:\\AI\\tts-models, else models\\ beside this file."""
+    """TTS_CACHE, else <AI_ROOT>\\tts-models if it exists, else models\\ beside this file."""
     env = os.environ.get("TTS_CACHE", "").strip()
     if env:
         return Path(env).expanduser()
-    shared = Path("C:/AI/tts-models")
-    if os.name == "nt" and shared.is_dir():
+    shared = _ai_root() / "tts-models"
+    if shared.is_dir():
         return shared
     return APP_ROOT / "models"
 
@@ -46,7 +58,7 @@ def _llama_bin() -> Path:
         return Path(env).expanduser()
     repo = APP_ROOT.parent.parent
     candidates = [repo / "build" / "bin" / "Release", repo / "build" / "bin",
-                  Path("C:/AI/llama.cpp/build/bin/Release")]
+                  _ai_root() / "llama.cpp" / "build" / "bin" / "Release"]
     for c in candidates:
         if (c / ("llama-server.exe" if os.name == "nt" else "llama-server")).exists():
             return c
