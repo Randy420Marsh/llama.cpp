@@ -24,13 +24,22 @@ from pathlib import Path
 
 def _add_cuda_dll_dirs() -> None:
     # CTranslate2 needs cuBLAS/cuDNN; the nvidia-* wheels ship them outside the default DLL path.
-    if sys.platform != "win32":
-        return
     try:
         import nvidia  # type: ignore
     except ImportError:
         return
     roots = [Path(p) for p in nvidia.__path__]
+    if sys.platform != "win32":
+        # LD_LIBRARY_PATH is read only at process start, so load the libraries now: a later
+        # dlopen("libcublas.so.12") by CTranslate2 then finds the one already loaded
+        import ctypes
+        for root in roots:
+            for lib in sorted(root.glob("*/lib/lib*.so.*")):
+                try:
+                    ctypes.CDLL(str(lib), mode=ctypes.RTLD_GLOBAL)
+                except OSError:
+                    pass
+        return
     for root in roots:
         for sub in root.glob("*/bin"):
             os.add_dll_directory(str(sub))
