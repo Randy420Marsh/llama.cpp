@@ -14,6 +14,7 @@
 		NUMERIC_FIELDS,
 		POSITIVE_INTEGER_FIELDS,
 		SETTINGS_CHAT_SECTIONS,
+		SETTINGS_KEYS,
 		SETTINGS_SECTION_SLUGS
 	} from '$lib/constants';
 	import { ColorMode } from '$lib/enums/ui.enums';
@@ -71,6 +72,12 @@
 
 	function handleConfigChange(key: string, value: string | number | boolean) {
 		localConfig[key] = value;
+
+		// discover needs the hub metadata reads: checking it turns the hub on,
+		// unchecking it turns the hub back off, so the checkbox never lies
+		if (key === SETTINGS_KEYS.ENABLE_DISCOVER_MODELS) {
+			localConfig[SETTINGS_KEYS.USE_HUGGING_FACE_HUB] = value === true;
+		}
 	}
 
 	function handleReset() {
