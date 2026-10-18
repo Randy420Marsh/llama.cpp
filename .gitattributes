@@ -1,0 +1,12 @@
+# Line endings: LF in the repository and on every checkout, so the tree matches upstream
+# and a merge of master never conflicts on CR alone. Windows-only scripts keep CRLF.
+* text=auto eol=lf
+
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+*.ps1     text eol=crlf
+*.sln     text eol=crlf
+*.vcxproj text eol=crlf
+
+# vendored files upstream keeps byte for byte (CRLF)
+tools/ui/src/lib/vendors/** -text
