@@ -99,7 +99,8 @@ def _refresh_voices(current: str):
     names = _voice_names() or ["clips"]
     # keep a selection the user already made or typed (even a not-yet-created name)
     keep = current if current else names[0]
-    return gr.Dropdown.update(choices=names, value=keep)
+    # Gradio 5: return a plain dict (Component.update() was removed).
+    return {"choices": names, "value": keep}
 
 
 # --- job runners -------------------------------------------------------------
