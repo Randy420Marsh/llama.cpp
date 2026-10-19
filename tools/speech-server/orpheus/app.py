@@ -83,8 +83,23 @@ def _voice_choices():
 
 
 def _voice_names() -> list[str]:
-    """Folder names under VOICES that have a reference clip (for the trim tab)."""
-    return [Path(ref).parent.name for _label, ref in _voice_choices()]
+    """All voice-folder names under VOICES (for the trim tab's target dropdown).
+
+    Lists every folder -- not only ones with a reference clip -- because you may
+    be *creating* a new voice's clips here; a new name you type is created on
+    export (VOICES/<name>/NNNN.wav).
+    """
+    if not VOICES.is_dir():
+        return []
+    return sorted(p.name for p in VOICES.iterdir() if p.is_dir())
+
+
+def _refresh_voices(current: str):
+    """Re-read the voices folder so folders created while the studio runs show up."""
+    names = _voice_names() or ["clips"]
+    # keep a selection the user already made or typed (even a not-yet-created name)
+    keep = current if current else names[0]
+    return gr.Dropdown.update(choices=names, value=keep)
 
 
 # --- job runners -------------------------------------------------------------
@@ -497,9 +512,18 @@ with gr.Blocks(title="Orpheus 3B LoRA Studio") as demo:
                     "exporting the same source repeatedly lets you cut several clips out of one long video.")
         with gr.Row():
             _vnames = _voice_names() or ["clips"]
-            tv_voice = gr.Dropdown(_vnames, label="Voice model (clips saved to its folder)",
-                                  value=_vnames[0])
+            tv_voice = gr.Dropdown(_vnames, label="Voice model (clips saved to its folder; type a new name to create a new voice)",
+                                   value=_vnames[0], allow_custom_value=True)
+            tv_refresh = gr.Button("Refresh voice list", scale=0,
+                                  elem_id="refresh-voices")
             tv_trim = gr.Checkbox(value=False, label="Trim tool ON (ask one by one)")
+            tv_refresh.click(_refresh_voices, [tv_voice], [tv_voice])
+            # also refresh when the tab's buttons run (cheap re-scan), so a folder
+            # added on disk shows up without a button press
+            tv_voice.change(_refresh_voices, [tv_voice], [tv_voice])
+        gr.Markdown(f"*Voice folders live in `{VOICES}` (one folder per voice, `NNNN.wav` clips + a "
+                    "`reference.<ext>` + `transcript.txt`). Type any new name above and the folder is "
+                    "created when you export.*")
         with gr.Row():
             tv_files = gr.File(label="Drop videos / audio here (mp4 mkv mov avi webm ts / wav mp3 flac ogg m4a opus wma)",
                                file_count="multiple",
