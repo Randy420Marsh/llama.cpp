@@ -325,6 +325,52 @@ the GGUF commands to follow. The full guide, with data recommendations and
 how the result plugs back into this server, is
 [wiki/Voice.md → Training your own Orpheus voice](../../wiki/Voice.md).
 
+**Transcribing your clips:** the training data needs a `text` per clip. If
+you recorded your own clips without writing them down, transcribe them with
+local **Whisper large-v3** (the most accurate model on this box, the same one
+the ASR server serves) — it writes a sidecar `.txt` next to each clip (what
+`make_orpheus_dataset.py` pairs by) plus a `transcripts.txt`:
+
+    tools/asr-server/venv/bin/python tools/asr-server/transcribe_orpheus_clips.py clips/ \
+        --language en --combined clips/transcripts.txt
+
+(Use `--model large-v3-turbo` for ~4× faster but slightly less accurate;
+`--server http://127.0.0.1:8178` to reuse a running ASR server;
+`--skip-existing` to fill only the gaps.) Then **review the `.txt` files**
+before training — a wrong transcript becomes the voice's target, and 10
+seconds of listening per clip beats a bad one.
+
+**How much data:** the Orpheus-TTS authors report **~50 clips for a usable
+result, ~300 per speaker for a strong one**; **6–15 s of natural speech per
+clip**, one speaker, quiet room, varied content (reading/talking/emotions) so
+it learns the *voice* not one phrase, and avoid synthetic/TTS audio.
+
+**GUI:** [orpheus/app.py](orpheus/app.py) is a Gradio studio that wraps this
+whole flow in one window — *Dataset* (transcribe the clips with Whisper, then
+build the `.jsonl`), *Train* (a plain-PyTorch LoRA pass in
+[orpheus/train_lora.py](orpheus/train_lora.py), no HF `Trainer`/`datasets`
+so it sidesteps the pyarrow crash on the torch nightly), *Publish* (adapter →
+GGUF via the repo's `convert_lora_to_gguf.py`, pointed at the cached base
+config so the gated model stays offline), and *Synthesize* (zero-shot clone +
+the adapter through the base model, in
+[orpheus/test_synthesis.py](orpheus/test_synthesis.py)).
+Start it with `start-orpheus-studio.sh` (or `.bat`); the GUI runs in a
+gradio-only env and shells the heavy work out to the torch venv.
+
+The studio's **Trim & Export** tab turns videos or audio into training-ready
+clips: drop files (mp4/mkv/mov/avi/webm/ts or wav/mp3/flac/…), pick a voice
+model, and toggle the **trim tool** — off exports the whole clip, on queues
+it for one-by-one trimming. For each queued item you get a synced video
+preview (native player) plus its extracted audio track, a waveform with a
+green A–B selection and a clip-length hint against the 6–15 s recommendation,
+and A/B fields. **Trim & export** cuts `[A, B)` into the voice's folder as a
+`NNNN.wav` — 24 kHz mono 16-bit, normalized to **-23 LUFS** (2-pass ffmpeg
+`loudnorm`, the SNAC codec's rate) — and keeps the item loaded so you can cut
+several clips from one long TV/movie scene; **Next item** marks it processed
+and advances, and the queue table tracks how many clips each source produced.
+Needs `ffmpeg`/`ffprobe` on PATH (the `loudnorm` filter is built in). The
+engine lives in [orpheus/trimtools.py](orpheus/trimtools.py).
+
 ## 9. Troubleshooting
 
 **Settings → Voice says "No speech server".** The server is not running, or
