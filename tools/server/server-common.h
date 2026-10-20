@@ -16,6 +16,7 @@
 #include <condition_variable>
 #include <cinttypes>
 #include <cstdio>
+#include <filesystem>
 #include <functional>
 #include <mutex>
 #include <queue>
@@ -94,6 +95,9 @@ struct server_grammar_trigger {
 };
 
 json format_error_response(const std::string & message, const enum error_type type);
+
+// path of the running llama-server binary, used to spawn siblings. throws on failure
+std::filesystem::path get_server_exec_path();
 
 //
 // random string / id
