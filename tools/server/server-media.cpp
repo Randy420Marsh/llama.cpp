@@ -466,6 +466,11 @@ static media_options parse_options(const json & part, const std::string & field,
         o.audio_mode != "both" && o.audio_mode != "none") {
         throw std::invalid_argument(field + ".audio must be one of auto, native, transcript, both, none");
     }
+    // --audio-mode: a model that hears by itself takes the transcript instead (or as well), unless the request
+    // asked for something else; a model without an audio encoder gets the transcript in auto anyway
+    if (o.audio_mode == "auto" && cfg.audio_native && cfg.audio_mode != "auto") {
+        o.audio_mode = cfg.audio_mode;
+    }
     if (v.contains("language")) {
         o.language = v.at("language").get<std::string>();
     }
@@ -598,6 +603,18 @@ static std::vector<asr_segment> transcribe(const std::vector<uint8_t> & wav, con
     return out;
 }
 
+std::string server_media_transcribe_text(const std::vector<uint8_t> & wav, const std::string & language,
+                                         const server_media_config & cfg) {
+    if (cfg.asr_url.empty()) {
+        throw std::runtime_error("this server has no speech-to-text server (start it with --asr-url)");
+    }
+    std::string out;
+    for (const auto & s : transcribe(wav, language.empty() ? cfg.asr_language : language, cfg)) {
+        out += (out.empty() ? "" : " ") + s.text;
+    }
+    return out;
+}
+
 static std::string format_transcript(const std::vector<asr_segment> & segs, double offset, const std::string & title) {
     std::string out = title + " (speech-to-text; times are seconds in the source):\n";
     if (segs.empty()) {
@@ -617,7 +634,8 @@ static std::string format_transcript(const std::vector<asr_segment> & segs, doub
 // auto: when the model has an audio encoder the audio stays native (the model's own hearing);
 // a speech-to-text transcript (--asr-url) is an opt-in replacement, selected per part with
 // audio "transcript" (or "both"), and is only the automatic fallback for a model without an
-// audio encoder. ASR is never forced onto a model that can hear on its own.
+// audio encoder. ASR goes to a model that can hear on its own only when asked: per part, or for
+// every request with --audio-mode transcript|both (applied in parse_options).
 static std::string resolve_audio_mode(const std::string & requested, double seconds, const server_media_config & cfg,
                                       const std::string & what) {
     std::string mode = requested;

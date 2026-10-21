@@ -226,12 +226,19 @@ export class ChatService {
 			(extra: DatabaseMessageExtra): extra is DatabaseMessageExtraAudioFile =>
 				extra.type === AttachmentType.AUDIO
 		);
+		// the "Audio-capable models get" setting: the Whisper transcript even for a model
+		// that hears by itself, or its own hearing even when llama-server runs --audio-mode transcript
+		const audioMode = modelsStore.props.audioRequestMode(
+			modelsStore.activeModelId,
+			settingsStore.getConfig(SETTINGS_KEYS.AUDIO_INPUT)
+		);
 
 		for (const audio of audioFiles) {
 			contentParts.push({
 				input_audio: {
 					data: audio.base64Data,
-					format: getAudioInputFormat(audio.mimeType)
+					format: getAudioInputFormat(audio.mimeType),
+					...audioMode
 				},
 				type: ContentPartType.INPUT_AUDIO
 			});
@@ -257,7 +264,8 @@ export class ChatService {
 						? 'mp4'
 						: video.mimeType.includes('ogg')
 							? 'ogg'
-							: 'auto'
+							: 'auto',
+					...audioMode
 				},
 				type: ContentPartType.INPUT_VIDEO
 			});

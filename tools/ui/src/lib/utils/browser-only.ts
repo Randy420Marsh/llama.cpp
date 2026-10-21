@@ -19,6 +19,9 @@ export {
 // Speech server: speech-to-text for the mic (read-aloud lives in speechStore)
 export { transcribeAudio } from './tts';
 
+// llama-server's --asr-url whisper, when there is no speech server
+export { transcribeWithServer } from './asr';
+
 // PDF processing utilities (pdfjs-dist with DOMMatrix)
 export {
 	convertPDFToText,

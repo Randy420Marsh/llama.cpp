@@ -9,6 +9,11 @@ export const SETTINGS_KEYS = {
 	ALWAYS_SHOW_SIDEBAR_ON_DESKTOP: 'alwaysShowSidebarOnDesktop',
 	ALWAYS_SHOW_TOOL_CALL_CONTENT: 'alwaysShowToolCallContent',
 	API_KEY: 'apiKey',
+	// What audio and the sound of videos become for a model that hears by itself:
+	// 'server' (llama-server's --audio-mode, normally the model's own hearing),
+	// 'native' (the model's own hearing even under --audio-mode transcript) or
+	// 'transcript' (always the --asr-url Whisper transcript)
+	AUDIO_INPUT: 'audioInput',
 	AUTO_MIC_ON_EMPTY: 'autoMicOnEmpty',
 	BACKEND_SAMPLING: 'backend_sampling',
 	CONVERSATION_TABS: 'conversationTabs',

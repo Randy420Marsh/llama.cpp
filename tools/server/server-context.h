@@ -147,6 +147,7 @@ struct server_routes {
     server_http_context::handler_t post_responses_oai;
     server_http_context::handler_t post_responses_tok_oai;
     server_http_context::handler_t post_transcriptions_oai;
+    server_http_context::handler_t post_asr_transcribe;
     server_http_context::ws_handler_t ws_realtime;
     server_http_context::handler_t post_anthropic_messages;
     server_http_context::handler_t post_anthropic_count_tokens;

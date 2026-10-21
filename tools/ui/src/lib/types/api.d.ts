@@ -30,10 +30,14 @@ export interface ApiChatMessageContentPart {
 	input_audio?: {
 		data: string;
 		format: AudioInputFormat;
+		/** fork: auto | native | transcript | both | none (default: llama-server's --audio-mode) */
+		audio?: string;
 	};
 	input_video?: {
 		data: string;
 		format: 'mp4' | 'ogg' | 'auto';
+		/** fork: what the sound track becomes, as for input_audio */
+		audio?: string;
 	};
 }
 
@@ -289,6 +293,12 @@ export interface ApiLlamaCppServerProps {
 	reasoning_efforts?: string[];
 	/** fork: the level a request without reasoning_effort runs at ('' = unknown) */
 	reasoning_effort_default?: string;
+	/** fork: what audio becomes by default: native | transcript | both | none */
+	audio_input?: string;
+	/** fork: the model has an audio encoder (hears audio by itself) */
+	audio_encoder?: boolean;
+	/** fork: llama-server has an --asr-url whisper (POST /asr/transcribe) */
+	asr?: boolean;
 	bos_token: string;
 	eos_token: string;
 	build_info: string;

@@ -2741,6 +2741,18 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_AUDIO_NATIVE_MAX_SECONDS"));
     add_opt(common_arg(
+        {"--audio-mode"}, "MODE",
+        "how a model with an audio encoder takes audio and the audio track of videos when a request does not say: "
+        "auto = the model's own hearing, transcript = the --asr-url transcript instead, both = the two together "
+        "(transcript and both need --asr-url; a request's own \"audio\" field still wins) (default: auto)",
+        [](common_params & params, const std::string & value) {
+            if (value != "auto" && value != "transcript" && value != "both") {
+                throw std::invalid_argument("--audio-mode must be one of auto, transcript, both");
+            }
+            params.audio_mode = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_AUDIO_MODE"));
+    add_opt(common_arg(
         {"--video-timestamp-interval"}, "N",
         string_format("interval in milliseconds between text timestamps (default: %" PRId64 ")", params.video_timestamp_interval_ms),
         [](common_params & params, int value) {

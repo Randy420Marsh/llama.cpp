@@ -63,9 +63,10 @@
 		convertToWav,
 		createAudioFile,
 		isAudioRecordingSupported,
-		transcribeAudio
+		transcribeAudio,
+		transcribeWithServer
 	} from '$lib/utils/browser-only';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
 
 	interface Props {
@@ -84,7 +85,7 @@
 
 		// Event Handlers
 		onAttachmentRemove?: (index: number) => void;
-		onFilesAdd?: (files: File[]) => void;
+		onFilesAdd?: (files: File[]) => void | Promise<void>;
 		onStop?: () => void;
 		onSubmit?: () => void;
 		onSystemPromptClick?: (draft: { message: string; files: ChatUploadedFile[] }) => void;
@@ -585,21 +586,48 @@
 			const autoSend = Boolean(cfg[SETTINGS_KEYS.MIC_AUTO_SEND]);
 			const sttLanguage = String(cfg[SETTINGS_KEYS.MIC_STT_LANGUAGE] ?? '').trim();
 			const mode = String(cfg[SETTINGS_KEYS.MIC_MODE] ?? 'auto');
-
 			// A recording becomes text OR an audio attachment, never both: with both,
 			// llama-server's --asr-url transcribed the attachment again and the
 			// message carried the same words twice.
-			let attach = mode === 'attach';
+			// Auto: a model with its own audio encoder hears the recording itself, so
+			// it is attached without a detour through the speech server - unless the
+			// Whisper transcript is chosen for it (the "Audio-capable models get"
+			// setting, or llama-server's --audio-mode); "Model's own hearing" there
+			// overrides --audio-mode transcript.
+			const activeModelId = modelsStore.activeModelId;
+			const hearing = modelsStore.props.getAudioInput(activeModelId);
+			const audioChoice = cfg[SETTINGS_KEYS.AUDIO_INPUT];
+			const nativeAudio =
+				modelsStore.props.hasAudioEncoder(activeModelId) &&
+				(audioChoice === 'native' || (audioChoice !== 'transcript' && hearing !== 'transcript'));
+
+			let attach = mode === 'attach' || (mode === 'auto' && nativeAudio);
 			let heard = false;
 
 			if (!attach) {
-				if (mode === 'auto' && !speechStore.available) {
+				if (!speechStore.available) {
 					await speechStore.refresh();
 				}
 
-				if (mode === 'transcribe' || speechStore.available) {
+				// the speech server when it answers, else llama-server's own --asr-url
+				// whisper (Transcribe tries it unless the server said it has none)
+				const asr = modelsStore.props.hasAsr(activeModelId);
+				const viaServer =
+					!speechStore.available && (asr === true || (mode === 'transcribe' && asr !== false));
+
+				if (mode === 'transcribe' || speechStore.available || viaServer) {
 					try {
-						const transcript = await transcribeAudio(wavBlob, speechStore.url, sttLanguage);
+						let transcript: string | null;
+
+						if (speechStore.available) {
+							transcript = await transcribeAudio(wavBlob, speechStore.url, sttLanguage);
+						} else if (viaServer) {
+							transcript = await transcribeWithServer(wavBlob, activeModelId, sttLanguage);
+						} else {
+							throw new Error(
+								`no speech server at ${speechStore.url} and llama-server has no --asr-url`
+							);
+						}
 
 						if (transcript) {
 							heard = true;
@@ -609,10 +637,16 @@
 							toast.info('No speech recognised in the recording');
 						}
 					} catch (error) {
-						// keep the recording rather than lose what was said
-						toast.error(
-							`Transcription failed (${error instanceof Error ? error.message : String(error)}); the recording is attached instead`
-						);
+						// keep the recording rather than lose what was said; a model with
+						// its own audio encoder hears it anyway, so that is no failure
+						const reason = error instanceof Error ? error.message : String(error);
+
+						if (nativeAudio) {
+							toast.info(`Speech server unavailable (${reason}); the model hears the recording`);
+						} else {
+							toast.error(`Transcription failed (${reason}); the recording is attached instead`);
+						}
+
 						attach = true;
 					}
 				} else {
@@ -621,7 +655,10 @@
 			}
 
 			if (attach) {
-				onFilesAdd?.([createAudioFile(wavBlob)]);
+				// the attachment reaches the form only once it is processed: wait for
+				// it, or an auto-send finds the form empty and sends nothing
+				await onFilesAdd?.([createAudioFile(wavBlob)]);
+				await tick();
 			}
 
 			if (autoSend && (heard || attach)) {

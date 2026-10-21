@@ -33,6 +33,7 @@ struct server_media_config {
     int         video_max_frames   = 768;   // per video part
     float       video_dedup        = 4.0f;  // region luma change threshold, 0 = off
     float       audio_native_max_s = 600.0f;
+    std::string audio_mode         = "auto"; // what "auto" becomes when audio_native: auto | transcript | both (--audio-mode)
 };
 
 // returns the parts that replace one "video_url" / "input_video" part: text and media_marker parts, one marker per file added to out_files
@@ -46,3 +47,9 @@ common_json server_media_audio_part(
         const common_json & part,
         const server_media_config & cfg,
         std::vector<std::vector<uint8_t>> & out_files);
+
+// the --asr-url transcript of a WAV clip as plain text ("" = no speech); language "" = --asr-language
+std::string server_media_transcribe_text(
+        const std::vector<uint8_t> & wav,
+        const std::string & language,
+        const server_media_config & cfg);

@@ -622,6 +622,7 @@ struct common_params {
     std::string asr_model                   = "";
     std::string asr_language                = "";
     float       audio_native_max_s          = 600.0f; // longer audio goes to the transcript instead (when --asr-url is set)
+    std::string audio_mode                  = "auto"; // auto | transcript | both: what "auto" audio becomes for a model with an audio encoder
 
     // finetune
     struct lr_opt lr;

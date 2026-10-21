@@ -87,6 +87,7 @@
 		modelId={option.model}
 		tags={option.tags}
 		title={option.model}
+		wrap
 	/>
 
 	{#if showCapabilities}

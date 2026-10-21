@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Mic, Volume2 } from '@lucide/svelte';
+	import { ChevronDown, Mic, Volume2 } from '@lucide/svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { SETTINGS_KEYS } from '$lib/constants';
 	import { settingsStore } from '$lib/stores';
@@ -133,17 +133,24 @@
 				<label class="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
 					<span>after</span>
 
-					<select
-						class="h-6 min-w-10 shrink-0 rounded border bg-background px-1.5 text-right text-xs tabular-nums"
-						onchange={handleSilenceChange}
-						value={silenceMs}
-					>
-						{#each SILENCE_OPTIONS as ms (ms)}
-							<option value={ms}>
-								{ms / 1000}s
-							</option>
-						{/each}
-					</select>
+					<!-- own chevron: the native arrow covered the value in so narrow a box -->
+					<span class="relative shrink-0">
+						<select
+							class="h-6 w-12 appearance-none rounded border bg-background pr-4 pl-1.5 text-xs tabular-nums"
+							onchange={handleSilenceChange}
+							value={silenceMs}
+						>
+							{#each SILENCE_OPTIONS as ms (ms)}
+								<option value={ms}>
+									{ms / 1000}s
+								</option>
+							{/each}
+						</select>
+
+						<ChevronDown
+							class="pointer-events-none absolute top-1/2 right-1 h-3 w-3 -translate-y-1/2 opacity-60"
+						/>
+					</span>
 
 					<span>silence</span>
 				</label>

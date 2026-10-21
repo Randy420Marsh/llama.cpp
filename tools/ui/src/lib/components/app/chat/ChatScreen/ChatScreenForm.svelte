@@ -12,7 +12,7 @@
 		initialMessage?: string;
 		isLoading?: boolean;
 		onFileRemove?: (fileId: string) => void;
-		onFileUpload?: (files: File[]) => void;
+		onFileUpload?: (files: File[]) => void | Promise<void>;
 		onSend?: (message: string, files?: ChatUploadedFile[]) => Promise<boolean>;
 		onStop?: () => void;
 		onSystemPromptAdd?: (draft: { message: string; files: ChatUploadedFile[] }) => void;
@@ -76,7 +76,7 @@
 	});
 
 	function handleFilesAdd(files: File[]) {
-		onFileUpload?.(files);
+		return onFileUpload?.(files);
 	}
 
 	async function handleSubmit() {

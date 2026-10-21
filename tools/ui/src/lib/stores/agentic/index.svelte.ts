@@ -10,7 +10,7 @@
  * the permission/continue/steering gates owned by {@link AgenticGates}.
  */
 
-import { DEFAULT_AGENTIC_CONFIG, NEWLINE } from '$lib/constants';
+import { DEFAULT_AGENTIC_CONFIG, NEWLINE, SETTINGS_KEYS } from '$lib/constants';
 import {
 	AUDIO_MIME_TO_EXTENSION,
 	DATA_URI_BASE64_REGEX,
@@ -943,6 +943,11 @@ class AgenticStore {
 									data: (attachment as DatabaseMessageExtraAudioFile).base64Data,
 									format: getAudioInputFormat(
 										(attachment as DatabaseMessageExtraAudioFile).mimeType
+									),
+									// the "Audio-capable models get" setting
+									...modelsStore.props.audioRequestMode(
+										effectiveModel,
+										settingsStore.config[SETTINGS_KEYS.AUDIO_INPUT]
 									)
 								},
 								type: ContentPartType.INPUT_AUDIO

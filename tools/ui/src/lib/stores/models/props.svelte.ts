@@ -74,6 +74,19 @@ export class ModelPropsManager {
 		return detectThinkingSupport(props?.chat_template ?? '');
 	}
 
+	/**
+	 * The per-part `audio` field for the "Audio-capable models get" setting:
+	 * 'transcript' asks for the Whisper transcript, 'native' for the model's own
+	 * hearing (sent only to a model that has it: llama-server refuses it otherwise).
+	 */
+	audioRequestMode(modelId: string | null | undefined, choice: unknown): { audio?: string } {
+		if (choice === 'transcript') return { audio: 'transcript' };
+
+		if (choice === 'native' && this.hasAudioEncoder(modelId)) return { audio: 'native' };
+
+		return {};
+	}
+
 	/** Map the router modalities, the only source available while a model is not loaded. */
 	buildArchitectureModalities(
 		architecture: ApiModelDataEntry['architecture']
@@ -180,6 +193,14 @@ export class ModelPropsManager {
 		}
 	}
 
+	/**
+	 * What audio becomes on the server by default (/props `audio_input`): native
+	 * (the model hears it), transcript, both or none; '' when unknown.
+	 */
+	getAudioInput(modelId?: string | null): string {
+		return this.audioProps(modelId)?.audio_input ?? '';
+	}
+
 	getModelContextSize(modelId: string): number | null {
 		const props = this.getModelProps(modelId);
 		const nCtx = props?.default_generation_settings?.n_ctx;
@@ -257,6 +278,27 @@ export class ModelPropsManager {
 		return (props?.reasoning_efforts ?? []).filter((level: string) => level !== 'none');
 	}
 
+	/** llama-server transcribes with its --asr-url whisper (POST /asr/transcribe); null = unknown */
+	hasAsr(modelId?: string | null): boolean | null {
+		return this.audioProps(modelId)?.asr ?? null;
+	}
+
+	/**
+	 * The model hears audio by itself (an audio encoder, /props `audio_encoder`);
+	 * a server without that field: it takes audio and does not transcribe it.
+	 */
+	hasAudioEncoder(modelId?: string | null): boolean {
+		if (!modelId || !this.modelSupportsAudio(modelId)) return false;
+
+		const props = this.audioProps(modelId);
+
+		if (typeof props?.audio_encoder === 'boolean') return props.audio_encoder;
+
+		const input = props?.audio_input ?? '';
+
+		return input === '' || input === 'native' || input === 'both';
+	}
+
 	isModelPropsFetching(modelId: string): boolean {
 		return this.fetching.has(modelId);
 	}
@@ -289,6 +331,16 @@ export class ModelPropsManager {
 		);
 
 		this.cacheVersion++;
+	}
+
+	private audioProps(modelId?: string | null) {
+		void this.cacheVersion;
+
+		return !serverStore.isRouterMode
+			? serverStore.props
+			: modelId
+				? this.getModelProps(modelId)
+				: null;
 	}
 
 	private buildModalities(

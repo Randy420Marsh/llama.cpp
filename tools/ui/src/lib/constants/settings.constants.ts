@@ -766,13 +766,25 @@ export const SETTINGS_REGISTRY: SettingsSectionEntry[] = [
 		settings: [
 			{
 				defaultValue: 'auto',
-				help: "Transcribe: your words go into the message box (speech server). Send audio: the recording is attached; a model with an audio encoder hears it, other models get llama-server's --asr-url transcript. Auto: transcribe when the speech server answers, else send audio.",
+				help: "Transcribe: your words go into the message box (the speech server, or llama-server's --asr-url whisper when no speech server answers). Send audio: the recording is attached; a model with an audio encoder hears it, other models get llama-server's --asr-url transcript. Auto: send audio to a model that hears it (see below); otherwise transcribe, else send audio.",
 				key: SETTINGS_KEYS.MIC_MODE,
 				label: 'Voice input becomes',
 				options: [
 					{ icon: Mic, label: 'Auto', value: 'auto' },
 					{ icon: Mic, label: 'Text (transcribe)', value: 'transcribe' },
 					{ icon: Mic, label: 'Audio attachment', value: 'attach' }
+				],
+				type: SettingsFieldType.SELECT
+			},
+			{
+				defaultValue: 'server',
+				help: "What a model with its own audio encoder gets from audio attachments, recordings and the sound of videos. llama-server decides: its --audio-mode (normally the model hears the audio itself). Model's own hearing: always the audio itself, even when llama-server runs --audio-mode transcript. Whisper transcript: always the --asr-url transcript, as for models without an audio encoder (needs llama-server started with --asr-url). Models without an audio encoder always get the transcript.",
+				key: SETTINGS_KEYS.AUDIO_INPUT,
+				label: 'Audio-capable models get',
+				options: [
+					{ icon: Mic, label: 'llama-server decides', value: 'server' },
+					{ icon: Mic, label: "Model's own hearing", value: 'native' },
+					{ icon: Mic, label: 'Whisper transcript', value: 'transcript' }
 				],
 				type: SettingsFieldType.SELECT
 			},

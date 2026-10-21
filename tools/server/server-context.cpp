@@ -887,6 +887,11 @@ static server_media_config make_media_config(mtmd_context * mctx, const common_p
     cfg.video_max_frames   = params.video_max_frames;
     cfg.video_dedup        = params.video_dedup;
     cfg.audio_native_max_s = params.audio_native_max_s;
+    cfg.audio_mode         = params.audio_mode;
+    if (cfg.audio_mode != "auto" && cfg.asr_url.empty()) {
+        SRV_WRN("--audio-mode %s needs --asr-url; the model hears audio by itself\n", cfg.audio_mode.c_str());
+        cfg.audio_mode = "auto";
+    }
     if (!mctx) {
         return cfg;
     }
@@ -905,7 +910,8 @@ static server_media_config make_media_config(mtmd_context * mctx, const common_p
             }
         }
         SRV_INF("video: image tokens 512x288=%d 1920x1088=%d, temporal merge %d, audio %s, transcripts %s\n",
-                small, large, cfg.n_temporal_merge, cfg.audio_native ? "native" : "none",
+                small, large, cfg.n_temporal_merge,
+                !cfg.audio_native ? "none" : cfg.audio_mode == "auto" ? "native" : cfg.audio_mode.c_str(),
                 cfg.asr_url.empty() ? "off" : cfg.asr_url.c_str());
     }
     return cfg;
@@ -5664,6 +5670,13 @@ static json get_res_props(const server_context_meta & meta, const common_params 
             {"video",  meta.has_inp_video},
             {"audio",  meta.has_inp_audio},
         } },
+        // what audio becomes by default: native (the model hears it), transcript, both, or none
+        { "audio_input",                 !meta.chat_params.media.audio_native
+                                             ? (meta.chat_params.media.asr_url.empty() ? "none" : "transcript")
+                                             : meta.chat_params.media.audio_mode == "auto" ? "native"
+                                                                                            : meta.chat_params.media.audio_mode },
+        { "audio_encoder",               meta.chat_params.media.audio_native },     // the model can hear by itself
+        { "asr",                         !meta.chat_params.media.asr_url.empty() }, // POST /asr/transcribe works
         { "media_marker",                get_media_marker() },
         { "endpoint_slots",              params.endpoint_slots },
         { "endpoint_props",              params.endpoint_props },
@@ -6101,6 +6114,30 @@ void server_routes::init_routes() {
             files,
             TASK_RESPONSE_TYPE_OAI_ASR,
             session);
+    };
+
+    // the --asr-url whisper for the web UI's voice input: {"audio": base64 WAV, "language"} -> {"text"}
+    // (the transcription route above makes the loaded model itself transcribe)
+    this->post_asr_transcribe = [this](const server_http_req & req) {
+        auto res = create_response();
+        const auto & media = meta->chat_params.media;
+        if (media.asr_url.empty()) {
+            res->error(format_error_response("this server has no speech-to-text server (start it with --asr-url)",
+                                             ERROR_TYPE_NOT_SUPPORTED));
+            return res;
+        }
+        const json body = json::parse(req.body);
+        const raw_buffer wav = base64_decode_media(json_value(body, "audio", std::string()));
+        if (wav.empty()) {
+            res->error(format_error_response("\"audio\" (base64 WAV) is missing", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+        try {
+            res->ok({{"text", server_media_transcribe_text(wav, json_value(body, "language", std::string()), media)}});
+        } catch (const std::exception & e) {
+            res->error(format_error_response(e.what(), ERROR_TYPE_UNAVAILABLE));
+        }
+        return res;
     };
 
     // realtime transcription over websocket, modeled after the OpenAI realtime API
