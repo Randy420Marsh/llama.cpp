@@ -21,12 +21,12 @@ The launcher (`run.bat` on Windows, `run.sh` on Linux / Git Bash) is idempotent:
 
 ```bat
 rem Windows
-tools\asr-server\run.bat --port 8178 --model large-v3 --compute-type float16 --preload
+tools\asr-server\run.bat --port 8178 --model large-v3 --compute-type int8_float16 --preload
 ```
 
 ```bash
 # Linux / Git Bash
-bash tools/asr-server/run.sh --port 8178 --model large-v3 --compute-type float16 --preload
+bash tools/asr-server/run.sh --port 8178 --model large-v3 --compute-type int8_float16 --preload
 ```
 
 `--setup-only` does the venv/requirements steps and exits without starting the server.
@@ -38,7 +38,7 @@ bash tools/asr-server/run.sh --port 8178 --model large-v3 --compute-type float16
 | `--port` | `8178` | listen port |
 | `--model` | `large-v3` | faster-whisper model name or a local CTranslate2 model directory |
 | `--device` | `auto` | `auto`: the GPU when the model fits with `--vram-margin` GB to spare, otherwise (or when the GPU load fails) the CPU; checked again on every (re)load. `cuda` / `cpu` force one |
-| `--compute-type` | `float16` | CTranslate2 compute type; `float16` (~3 GB VRAM) is more accurate than `int8_float16` (~1.6 GB). The CPU has no float16, so there it becomes full-precision `float32` (not lossy int8) |
+| `--compute-type` | `int8_float16` | CTranslate2 compute type; `int8_float16` (int8 weights, ~1.6 GB VRAM) leaves room for the LLM on the card, `float16` (~3 GB) is marginally more accurate. The CPU has no float16, so there the float16 part becomes `float32` |
 | `--vram-margin GB` | `2` | VRAM that must stay free besides the model for `--device auto` to pick the GPU, so a llama-server sharing the card is not squeezed |
 | `--idle-unload N` | `0` | release the model from VRAM after N idle seconds (0 = keep resident) |
 | `--preload` | off | load the model at startup |
@@ -59,10 +59,10 @@ The default is multilingual `large-v3`. From testing on this machine (see
   GPU load fails (missing CUDA libraries, for example) - it runs on the CPU. The check repeats
   on every (re)load, and `GET /health` reports the device and compute type the model actually
   runs on.
-- **Precision.** On the GPU, `float16` (about 3 GB VRAM) is the most accurate; `int8_float16`
-  (about 1.6 GB) is the trade-down when VRAM is tight. On the CPU there is no float16, so the
-  server switches to full-precision `float32` (or `int8_float32` for the int8 setting) rather
-  than silently running a lossy int8 - accuracy over the small speed gain.
+- **Precision.** The default `int8_float16` (int8 weights, float16 compute, about 1.6 GB VRAM)
+  keeps large-v3's accuracy within a hair of `float16` (about 3 GB) at half the VRAM, so it shares
+  the card with a large LLM. On the CPU there is no float16, so the server switches to
+  `int8_float32` (or `float32` for the float16 setting), for that model only.
 - **VRAM budget for a busy card.** `--idle-unload N` releases the model from VRAM N seconds
   after the last transcription, so a long-running chat server gets the card back for
   generation; `0` keeps it resident for instant transcripts.
@@ -82,11 +82,11 @@ where startup is:
 
 ```text
 [Setup] venv and requirements OK.
-[Start] asr_server.py --port 8178 --model large-v3 --compute-type float16 --preload
-... INFO [asr] starting: model=large-v3 device=auto compute=float16 port=8178 models-dir=...
+[Start] asr_server.py --port 8178 --model large-v3 --compute-type int8_float16 --preload
+... INFO [asr] starting: model=large-v3 device=auto compute=int8_float16 port=8178 models-dir=...
 ... INFO [asr] downloading large-v3 (~3 GB) from Systran/faster-whisper-large-v3 ...   (first run only, with progress bar)
-... INFO [asr] loading large-v3 on cuda (float16) ...
-... INFO [asr] loaded large-v3 on cuda (float16) in 4.2s
+... INFO [asr] loading large-v3 on cuda (int8_float16) ...
+... INFO [asr] loaded large-v3 on cuda (int8_float16) in 4.2s
 ... INFO [asr] READY - listening on https://127.0.0.1:8178 (model loaded)
 ```
 

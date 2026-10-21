@@ -301,7 +301,11 @@ int llama_server(common_params & params, int argc, char ** argv, server_child & 
                     return false;
                 }
                 out = ": keep-alive\n\n"; // an SSE comment keeps the stream open without a data event
-                std::this_thread::sleep_for(std::chrono::seconds(15));
+                // wait in short steps, so a closed tab or a shutdown frees this HTTP thread at once
+                // rather than up to 15s later
+                for (int i = 0; i < 150 && !req.should_stop(); i++) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
                 return !req.should_stop();
             };
             return res;

@@ -19,14 +19,16 @@ cd "$(dirname "$0")"
 
 # -----------------------------------------------------------------------------
 # 1) Pick a CUDA toolkit (nvcc + lib64).
-#    The RTX 5090 is sm_120; any CUDA 12.8+ / 13.x that targets sm_120 works.
-#    The first usable toolkit wins. Set CUDA_HOME to force one.
+#    The RTX 5090 is sm_120. The build uses CUDA 13.4 (/usr/local/cuda-13.4); the
+#    others are fallbacks for a PC without it. The first usable toolkit wins, so the
+#    /usr/local/cuda symlink cannot switch the build to another version. Set CUDA_HOME
+#    to force one.
 # -----------------------------------------------------------------------------
 find_cuda() {
     local c
     for c in "${CUDA_HOME:-}" \
-             /usr/local/cuda \
              /usr/local/cuda-13.4 \
+             /usr/local/cuda \
              /usr/local/cuda-13.3 \
              /usr/local/cuda-13 \
              "$HOME/cuda-staging"; do
@@ -41,11 +43,15 @@ find_cuda() {
 
 if ! CUDA_PATH="$(find_cuda)"; then
     echo "No CUDA toolkit found. Point CUDA_HOME at a folder with bin/nvcc and lib64." >&2
-    echo "(checked: \$CUDA_HOME, ~/cuda-staging, /usr/local/cuda-13.4, -13.3, -13, /usr/local/cuda)" >&2
+    echo "(checked: \$CUDA_HOME, /usr/local/cuda-13.4, /usr/local/cuda, -13.3, -13, ~/cuda-staging)" >&2
     exit 1
 fi
 NVCC="$CUDA_PATH/bin/nvcc"
 echo "Using CUDA toolkit: $CUDA_PATH"
+case "$CUDA_PATH" in
+    */cuda-13.4) ;;
+    *) echo "WARNING: not CUDA 13.4 (/usr/local/cuda-13.4 missing or CUDA_HOME set)" >&2 ;;
+esac
 "$NVCC" --version 2>/dev/null | tail -n 2 || true
 
 # Environment the CUDA build needs (mirrors the original build's exports).
@@ -78,6 +84,7 @@ cmake -B build \
     -DGGML_CUDA_PEER_MAX_BATCH_SIZE=128 \
     -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCH:-120}" \
     -DCMAKE_CUDA_COMPILER="$NVCC" \
+    -DCUDAToolkit_ROOT="$CUDA_PATH" \
     -DCMAKE_INSTALL_RPATH="${CUDA_PATH}/lib64;\$ORIGIN" \
     -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
     -DCMAKE_CXX_FLAGS="-march=native -mtune=native -fomit-frame-pointer -flto"

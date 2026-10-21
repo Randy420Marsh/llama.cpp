@@ -10,9 +10,9 @@ released after N idle seconds and reloaded on the next request.
 
 Several models can be served at once (--models): a request's `model` field (or the first one, the
 default) selects which is used, so one server can offer a fast, small and an accurate Whisper and
-the caller picks per call. The default model is large-v3-turbo, the smallest of the accurate,
-multilingual, optimized Whisper variants (large-v3-turbo); large-v3 is the most accurate but the
-largest; distil-large-v3.5 is English-only and the fastest.
+the caller picks per call. The default is large-v3, the most accurate, in int8_float16 (int8
+weights, float16 compute: about half the VRAM of float16); large-v3-turbo is smaller and less
+accurate; distil-large-v3.5 is English-only and the fastest.
 """
 
 from __future__ import annotations
@@ -100,8 +100,10 @@ class ModelHolder:
         self.models = [m for m in (models if isinstance(models, (list, tuple)) else [models])]
         self.default = self.models[0]
         self.device_request = device
-        self.device = device  # what a loaded model actually runs on
-        self.compute_type = compute_type
+        self.compute_request = compute_type
+        self._device = {}   # name -> what that loaded model actually runs on
+        self._compute = {}  # name -> its compute type (the CPU fallback changes it for that model only)
+        self._verified = set()  # local folders already hashed by this process
         self.idle_unload = idle_unload
         self.models_dir = models_dir
         self.vram_margin = vram_margin
@@ -122,8 +124,20 @@ class ModelHolder:
     def state(self) -> str:
         return self._state[self.default]
 
+    @property
+    def device(self) -> str:
+        return self._device.get(self.default, self.device_request)
+
+    @property
+    def compute_type(self) -> str:
+        return self._compute.get(self.default, self.compute_request)
+
     def model_state(self, name: str) -> str:
         return self._state.get(name, "not loaded")
+
+    def model_device(self, name: str) -> tuple[str, str]:
+        """(device, compute type) of a model: what it runs on once loaded, else what is requested."""
+        return self._device.get(name, self.device_request), self._compute.get(name, self.compute_request)
 
     def _verify_local(self, target: Path) -> bool:
         """Is the local model folder complete and uncorrupted?
@@ -211,9 +225,13 @@ class ModelHolder:
         if Path(name).is_dir():
             return name
         target = self.models_dir / name.replace("/", "--")
-        if self._verify_local(target):
+        # hash a multi-GB folder once per process, not again on every reload after --idle-unload
+        if target in self._verified and (target / "model.bin").is_file():
             return str(target)
-        return self._download(name, target)
+        if not self._verify_local(target):
+            self._download(name, target)
+        self._verified.add(target)
+        return str(target)
 
     def _pick_device(self, name: str) -> str:
         """--device auto: the GPU only when the model fits with vram_margin GB to spare (so it
@@ -221,7 +239,10 @@ class ModelHolder:
         load, so a model reloaded after --idle-unload adapts to what is free by then."""
         if self.device_request != "auto":
             return self.device_request
-        need = MODEL_VRAM_GB.get(name, 4.0) + self.vram_margin
+        need = MODEL_VRAM_GB.get(name, 4.0)
+        if self.compute_request.startswith("int8"):
+            need /= 2  # int8 weights are half the float16 size
+        need += self.vram_margin
         free = free_vram_gb()
         if free is None or free >= need:
             return "cuda"
@@ -230,14 +251,13 @@ class ModelHolder:
         return "cpu"
 
     def _create(self, name: str, path: str, device: str) -> WhisperModel:
-        compute = self.compute_type
+        compute = self.compute_request
         if device == "cpu" and compute in CPU_COMPUTE:
             compute = CPU_COMPUTE[compute]
-            log.info("CPU has no %s: using %s (full precision rather than lossy int8)",
-                     self.compute_type, compute)
+            log.info("CPU has no %s: using %s", self.compute_request, compute)
         log.info("loading %s on %s (%s) ...", name, device, compute)
         model = WhisperModel(path, device=device, compute_type=compute)
-        self.device, self.compute_type = device, compute
+        self._device[name], self._compute[name] = device, compute
         return model
 
     def _load(self, name: str) -> WhisperModel:
@@ -261,7 +281,7 @@ class ModelHolder:
                         self._state[name] = f"error: {exc}"
                         raise
                     self._state[name] = "loaded"
-                    log.info("loaded %s on %s (%s) in %.1fs", name, self.device, self.compute_type,
+                    log.info("loaded %s on %s (%s) in %.1fs", name, *self.model_device(name),
                              time.monotonic() - t)
         return self._model[name]
 
@@ -323,7 +343,8 @@ def build_app(holder: ModelHolder) -> FastAPI:
         return {"status": "ok", "default_model": holder.default,
                 "loaded": holder._model.get(holder.default) is not None,
                 "state": holder.state, "device": holder.device, "compute_type": holder.compute_type,
-                "models": {n: holder.model_state(n) for n in holder.models}}
+                "models": {n: holder.model_state(n) for n in holder.models},
+                "devices": {n: "%s (%s)" % holder.model_device(n) for n in holder.models}}
 
     @app.get("/v1/models")
     def models():
@@ -437,11 +458,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8178)
-    parser.add_argument("--model", default="large-v3-turbo",
+    parser.add_argument("--model", default="large-v3",
                         help="faster-whisper model name or CTranslate2 model directory, and the default for "
-                             "requests that name no model. large-v3-turbo (default: the optimized, multilingual "
-                             "variant - the smallest of the accurate ones); large-v3 (most accurate, largest); "
-                             "distil-large-v3.5 (English only, fastest)")
+                             "requests that name no model. large-v3 (default: the most accurate); "
+                             "large-v3-turbo (smaller, less accurate); distil-large-v3.5 (English only, fastest)")
     parser.add_argument("--models", default="",
                         help="comma-separated list of extra ASR models to serve alongside --model; the first "
                              "listed is the default and the rest are selected per request with the OpenAI "
@@ -451,9 +471,10 @@ def main() -> None:
     parser.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"],
                         help="auto (default): GPU when the model fits with --vram-margin GB to spare, "
                              "else CPU (also when the GPU load fails); cuda / cpu force one")
-    parser.add_argument("--compute-type", default="float16",
-                        help="CTranslate2 compute type: float16 (default, ~3 GB VRAM for large-v3), "
-                             "int8_float16 (~1.6 GB, less accurate). On the CPU float16 becomes float32")
+    parser.add_argument("--compute-type", default="int8_float16",
+                        help="CTranslate2 compute type: int8_float16 (default: int8 weights, ~1.6 GB VRAM for "
+                             "large-v3), float16 (~3 GB, marginally more accurate). On the CPU the float16 "
+                             "part becomes float32")
     parser.add_argument("--vram-margin", type=float, default=2.0,
                         help="GB of VRAM that must stay free besides the model for --device auto to "
                              "use the GPU (default 2)")
@@ -514,7 +535,7 @@ def main() -> None:
             try:
                 holder._load(name)  # _load takes the per-model lock itself
             except Exception as exc:
-                log.error("could not load %s on %s (%s): %s", name, holder.device, holder.compute_type, exc)
+                log.error("could not load %s on %s (%s): %s", name, *holder.model_device(name), exc)
                 if args.device == "cuda":
                     log.error("hint: no usable GPU / CUDA libraries? use --device auto or --device cpu")
                 sys.exit(1)
