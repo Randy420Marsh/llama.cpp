@@ -440,7 +440,8 @@ static void dequantize_row_iq3_xxs_sycl_reorder(const void * vx, dst_t * y, cons
         sycl::nd_range<3>(sycl::range<3>(1, 1, nb) * sycl::range<3>(1, 1, 32), sycl::range<3>(1, 1, 32)),
         [=](sycl::nd_item<3> item_ct1) {
             dequantize_block_iq3_xxs_reorder(
-                vx, y, item_ct1, nb, iq3xxs_grid, ksigns_iq2xs, kmask_iq2xs);
+                vx, y + item_ct1.get_group(2) * QK_K, item_ct1.get_group(2), item_ct1, nb,
+                iq3xxs_grid, ksigns_iq2xs, kmask_iq2xs);
         });
 }
 
@@ -472,7 +473,8 @@ static void dequantize_row_iq3_s_sycl_reorder(const void * vx, dst_t * y, const 
     stream->parallel_for(
         sycl::nd_range<3>(sycl::range<3>(1, 1, nb) * sycl::range<3>(1, 1, 32), sycl::range<3>(1, 1, 32)),
         [=](sycl::nd_item<3> item_ct1) {
-            dequantize_block_iq3_s_reorder(vx, y, item_ct1, nb, kmask_iq2xs, iq3s_grid);
+            dequantize_block_iq3_s_reorder(vx, y + item_ct1.get_group(2) * QK_K, item_ct1.get_group(2),
+                                           item_ct1, nb, kmask_iq2xs, iq3s_grid);
         });
 }
 
@@ -757,7 +759,6 @@ to_fp16_sycl_t ggml_get_to_fp16_sycl(ggml_type type, ggml_tensor * dst) {
 #endif
         default:
             GGML_ABORT("fatal error: unsupport data type=%s\n", ggml_type_name(type));
-            return nullptr;
     }
 }
 
@@ -861,7 +862,6 @@ to_fp32_sycl_t ggml_get_to_fp32_sycl(ggml_type type, ggml_tensor *dst) {
 #endif
         default:
             GGML_ABORT("fatal error: unsupport data type=%s\n", ggml_type_name(type));
-            return nullptr;
     }
 }
 
@@ -877,7 +877,6 @@ to_bf16_sycl_t ggml_get_to_bf16_sycl(ggml_type type, ggml_tensor * /*dst*/) {
             return convert_unary_sycl<sycl::ext::oneapi::bfloat16>;
         default:
             GGML_ABORT("fatal error: unsupport data type=%s\n", ggml_type_name(type));
-            return nullptr;
     }
 }
 #endif
