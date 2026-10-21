@@ -669,8 +669,9 @@ class LlamaCppEngine(Engine):
                 for k, v in sorted(self.model_files().items())]
 
     def default_model(self):
+        # the smallest quant that is on disk: it fits next to a loaded LLM
         files = self.model_files()
-        for q in ("Q8_0", "bf16", "BF16", "F16", "Q6_K", "Q4_K_M"):
+        for q in ("Q4_K_M", "Q6_K", "Q8_0", "bf16", "BF16", "F16"):
             for k, v in files.items():
                 if v["quant"] == q:
                     return k
@@ -879,8 +880,9 @@ class OrpheusEngine(Engine):
         return out
 
     def default_model(self):
+        # the smallest quant that is on disk: it fits next to a loaded LLM
         qs = self.ft_quants()
-        return next((q for q in ("Q8_0", "Q6_K", "Q4_K_M") if q in qs), next(iter(qs), ""))
+        return next((q for q in ("Q4_K_M", "Q6_K", "Q8_0") if q in qs), next(iter(qs), ""))
 
     def _ensure_server(self, quant: str) -> str:
         """Start (or swap) a llama-server holding the requested quant."""
@@ -1362,26 +1364,26 @@ _ORP_PT = "HorizonNexusAI/orpheus-3b-0.1-pretrained-GGUF"
 CATALOG: list[dict] = [
     {"engine": "llamacpp", "id": f"{_Q3B}-Q8_0", "label": "Qwen3-TTS 1.7B Q8_0", "repo": _Q3,
      "dir": NATIVE_DIR, "files": [f"{_Q3B}-Q8_0.gguf", f"mmproj-{_Q3B}-bf16.gguf"],
-     "size_mb": 2517, "recommended": True, "note": "best balance; ~4.5-5.5 GB VRAM, ~5x realtime"},
+     "size_mb": 2517, "note": "best quality; ~4.5-5.5 GB VRAM, ~5x realtime"},
     {"engine": "llamacpp", "id": f"{_Q3B}-Q4_K_M", "label": "Qwen3-TTS 1.7B Q4_K_M", "repo": _Q3,
      "dir": NATIVE_DIR, "files": [f"{_Q3B}-Q4_K_M.gguf", f"mmproj-{_Q3B}-Q8_0.gguf"],
-     "size_mb": 1482, "note": "smallest download and VRAM"},
+     "size_mb": 1482, "recommended": True, "note": "smallest download and VRAM; default"},
     {"engine": "llamacpp", "id": f"{_Q3B}-bf16", "label": "Qwen3-TTS 1.7B bf16", "repo": _Q3,
      "dir": NATIVE_DIR, "files": [f"{_Q3B}-bf16.gguf", f"mmproj-{_Q3B}-bf16.gguf"],
      "size_mb": 4142, "note": "full precision"},
     # Orpheus 3B finetuned: the 8 preset voices. ids match OrpheusEngine.quants().
     {"engine": "orpheus", "id": "Q8_0", "label": "Orpheus 3B finetuned Q8_0",
      "repo": _ORP_FT, "dir": ORPHEUS_DIR,
-     "files": ["orpheus-3b-0.1-ft-Q8_0.gguf"], "size_mb": 3516, "recommended": True,
-     "note": "8 preset voices; community GGUF of canopylabs/orpheus-3b-0.1-ft"},
+     "files": ["orpheus-3b-0.1-ft-Q8_0.gguf"], "size_mb": 3516,
+     "note": "8 preset voices, best quality; community GGUF of canopylabs/orpheus-3b-0.1-ft"},
     {"engine": "orpheus", "id": "Q6_K", "label": "Orpheus 3B finetuned Q6_K",
      "repo": _ORP_FT, "dir": ORPHEUS_DIR,
      "files": ["orpheus-3b-0.1-ft-Q6_K.gguf"], "size_mb": 2717,
      "note": "between Q8_0 and Q4_K_M in quality and VRAM"},
     {"engine": "orpheus", "id": "Q4_K_M", "label": "Orpheus 3B finetuned Q4_K_M",
      "repo": _ORP_FT, "dir": ORPHEUS_DIR,
-     "files": ["orpheus-3b-0.1-ft-Q4_K_M.gguf"], "size_mb": 2093,
-     "note": "faster, slightly rougher"},
+     "files": ["orpheus-3b-0.1-ft-Q4_K_M.gguf"], "size_mb": 2093, "recommended": True,
+     "note": "smallest of the preset voices; faster, slightly rougher; default"},
     # Orpheus 3B pretrained: zero-shot cloning of your voices (needs the clip's
     # transcript). The repo names its files unsloth.*.gguf, so each download is
     # renamed to orpheus-3b-0.1-pretrained-<Q>.gguf -- what quants() looks for.

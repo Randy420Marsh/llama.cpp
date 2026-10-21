@@ -10,6 +10,8 @@
 
 #include "build-info.h"
 #include "common.h"
+#include "common/preset.h"
+#include "server-models.h"
 #include "fit.h"
 #include "llama.h"
 #include "log.h"
@@ -5284,6 +5286,60 @@ static json get_res_models(const server_context_meta & meta) {
     };
 }
 
+// A single-model server started with --models-preset lists every preset in the Aegis file
+// so the embedded UI shows all models with their real status: the one actually loaded is
+// "loaded" (shown online), the rest are "unloaded". Picking an unloaded one still talks to
+// the single loaded model until the server is relaunched with that model (single-model mode
+// cannot hot-swap), which matches how Aegis already presents them.
+static json get_res_models_with_presets(const common_params & params, const server_context_meta & meta) {
+    json out = get_res_models(meta);
+
+    if (params.models_preset.empty()) {
+        return out;
+    }
+
+    json & data = out["data"];
+
+    // the actually-loaded model is online
+    if (!data.empty()) {
+        data[0]["status"] = json { {"value", "loaded"}, {"args", json::array()} };
+    }
+
+    common_preset_context ctx_preset(LLAMA_EXAMPLE_SERVER);
+    ctx_preset.ignore_unknown_keys = true; // a shared presets file may carry options this build does not know
+
+    common_preset global;
+    common_presets presets;
+    try {
+        presets = ctx_preset.load_from_ini(std::filesystem::path(params.models_preset), global);
+    } catch (const std::exception & e) {
+        SRV_WRN("could not read models preset file '%s': %s\n", params.models_preset.c_str(), e.what());
+        return out;
+    }
+
+    // the loaded model is listed under its --alias (its model_name when an alias is set, as
+    // Aegis launches it), so skip the preset with that name: it is already the online entry
+    const std::string loaded_alias = meta.model_name; // the loaded entry's id; == the --alias when Aegis launches it
+    for (const auto & kv : presets) {
+        const std::string & name = kv.first;
+        if (!loaded_alias.empty() && name == loaded_alias) {
+            continue; // already listed as the loaded model
+        }
+        data.push_back(json {
+            {"id",            name},
+            {"aliases",       json::array()},
+            {"tags",          json::array()},
+            {"object",        "model"},
+            {"owned_by",      "llamacpp"},
+            {"created",       std::time(0)},
+            {"status",        json { {"value", "unloaded"}, {"args", json::array()} }},
+            {"architecture",  json { {"input_modalities", json::array({"text"})}, {"output_modalities", json::array({"text"})} }},
+        });
+    }
+
+    return out;
+}
+
 static json get_res_props(const server_context_meta & meta, const common_params & params, bool is_sleeping) {
     // note: do NOT use ctx_server here, otherwise it's not possible to use this during sleep
 
@@ -5326,6 +5382,14 @@ static json get_res_props(const server_context_meta & meta, const common_params 
         { "is_sleeping",                 is_sleeping },
         { "cors_proxy_enabled",          params.ui_mcp_proxy },
     };
+
+    // a single-model server started with --models-preset presents itself to the UI as a
+    // router, so the model list (with online/offline status) renders like the Aegis-launched
+    // router instead of a lone single-model entry
+    if (!params.models_preset.empty()) {
+        props["role"] = "router";
+    }
+
     if (params.use_jinja) {
         if (!tmpl_tools.empty()) {
             props["chat_template_tool_use"] = tmpl_tools;
@@ -5787,7 +5851,7 @@ void server_routes::init_routes() {
             std::unique_lock<std::mutex> lock(mutex_cache);
             res->ok(cached_models);
         } else {
-            res->ok(get_res_models(*meta));
+            res->ok(get_res_models_with_presets(params, *meta));
         }
         return res;
     };
@@ -6361,7 +6425,7 @@ void server_routes::update_cached_responses(bool is_sleeping) {
     std::unique_lock<std::mutex> lock(mutex_cache);
 
     if (is_sleeping) {
-        cached_models  = get_res_models(*meta);
+        cached_models  = get_res_models_with_presets(params, *meta);
         cached_props   = get_res_props(*meta, params, true);
         cached_metrics = ctx_server.get_metrics();
 

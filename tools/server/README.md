@@ -1379,7 +1379,7 @@ For multimodal input (typed content, `messages[i].content[j]`):
     - Either `input_audio.data` or `input_audio.url` can be specified, can be a remote URL, raw base64 or path to local file
     - Accepts formats supported by `miniaudio` (mp3, wav, flac), and any `ffmpeg` format when ffmpeg is available
     - `input_audio.format` will be ignored, the file format will be determined automatically
-    - With a model audio encoder the audio goes to the model; otherwise, with `--asr-url`, it becomes a timestamped transcript. `audio: "native" | "transcript" | "auto"` selects this per part
+    - With a model audio encoder the audio goes to the model; a speech-to-text transcript (`--asr-url`) is an opt-in replacement, chosen per part with `audio: "transcript"` (or `"both"`), and is only the automatic fallback for a model without an audio encoder. `audio: "native" | "transcript" | "auto"` selects this per part
 - If `type == "input_video"` (or `video_url`):
     - Either `input_video.data` or `input_video.url` can be specified, can be a remote URL, raw base64 or path to local file
     - Accepts formats supported by `ffmpeg`
@@ -1388,7 +1388,7 @@ For multimodal input (typed content, `messages[i].content[j]`):
         - `start`, `end`, `duration`: one range, in seconds or `[hh:]mm:ss[.f]`; `segments`: several ranges, each `{start, end}` or `{start, duration}`
         - `fps`: sampling rate (at most `--video-fps`); `detail`: `low` / `standard` / `high` / `max` (256 / 576 / 1024 / 2048 tokens per frame, or per frame pair on models that merge two frames such as Qwen-VL) or a number; `standard` keeps 20 px text on a 1080p source readable
         - `max_tokens`, `max_frames`: per-part budget, may only lower `--video-max-tokens` / `--video-max-frames`. The frame rate drops to fit, down to `--video-min-fps`; longer ranges are rejected with a message giving the longest range that fits
-        - `audio`: `auto` (default: transcript when `--asr-url` is set, else native audio if the model has an audio encoder), `transcript`, `native`, `both`, `none`; `language`: transcript language hint
+        - `audio`: `auto` (default: native audio when the model has an audio encoder; a transcript via `--asr-url` only when it does not), `transcript`, `native`, `both`, `none`; `language`: transcript language hint
     - Frame timestamps and transcript lines are in source time, so a segment 5 h into a file is described at 18000 s; frame pairs where no screen region changed (`--video-dedup`) are dropped
 - Note: for local file, make sure to set `--media-path`. File path must be prefixed by `file://`
 - Only plain container formats are opened for audio/video; playlist, concat and image-sequence inputs are refused

@@ -188,6 +188,7 @@ export {
 
 // Data URL utilities
 export { createBase64DataUrl } from './data-url';
+export { toStandaloneSvg } from './standalone-svg';
 
 // Header utilities
 export { parseHeadersToArray, serializeHeaders } from './headers';

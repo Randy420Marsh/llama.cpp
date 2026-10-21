@@ -104,7 +104,11 @@ for t in build/bin/llama-server build/bin/llama-bench; do
 done
 echo
 echo "Done. Test the router (loads a model, needs a GGUF path):"
-echo "  ./build/bin/llama-server --models-preset <presets.ini> --host 127.0.0.1 --port 8080"
+echo "  The presets come from ProjectAegis, not llama.cpp. If you have ProjectAegis, use its"
+echo "  generated file (regenerated every time Aegis starts the LLM engine):"
+echo "    <ProjectAegis>/data/llm/presets.ini"
+echo "  (on this PC: /home/john/AI/ProjectAegis/data/llm/presets.ini)"
+echo "  ./build/bin/llama-server --models-preset <ProjectAegis>/data/llm/presets.ini --host 127.0.0.1 --port 8080"
 echo
 echo "Optional vision smoke test (fill in a GGUF + mmproj path you have):"
 echo "  python3 - <<'PY'"

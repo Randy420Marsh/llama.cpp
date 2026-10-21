@@ -4,6 +4,7 @@
 	import ZoomInIcon from '@lucide/svelte/icons/zoom-in';
 	import ZoomOutIcon from '@lucide/svelte/icons/zoom-out';
 	import { ICON_CLASS_DEFAULT } from '$lib/constants';
+	import { toStandaloneSvg } from '$lib/utils';
 
 	interface Props {
 		scale: number;
@@ -18,7 +19,7 @@
 	function downloadSvg() {
 		if (!svgHtml) return;
 
-		const blob = new Blob([svgHtml], { type: 'image/svg+xml' });
+		const blob = new Blob([toStandaloneSvg(svgHtml)], { type: 'image/svg+xml' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 

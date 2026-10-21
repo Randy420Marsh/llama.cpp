@@ -13,8 +13,10 @@
 #include "log.h"
 
 #include <atomic>
+#include <chrono>
 #include <clocale>
 #include <exception>
+#include <memory>
 #include <signal.h>
 #include <thread> // for std::thread::hardware_concurrency
 
@@ -267,6 +269,27 @@ int llama_server(common_params & params, int argc, char ** argv, server_child & 
     ctx_http.post("/props",                    ex_wrapper(routes.post_props));
     ctx_http.get ("/models",                   ex_wrapper(routes.get_models));
     ctx_http.get ("/v1/models",                ex_wrapper(routes.get_models));
+
+    // a single-model server launched with --models-preset advertises itself as a router to the
+    // UI, so the UI opens the /models/sse feed on load. In single-model mode there is no real
+    // feed, so serve an idle stream (keep-alive every 15s) instead of 404-ing, which would make
+    // the UI reconnect once a second. The model list still comes from /v1/models above.
+    if (!is_router_server && !params.models_preset.empty()) {
+        ctx_http.get("/models/sse", [](const server_http_req & req) -> server_http_res_ptr {
+            auto res = std::make_unique<server_http_res>();
+            res->status = 200;
+            res->content_type = "text/event-stream";
+            res->next = [&req](std::string & out) -> bool {
+                if (req.should_stop()) {
+                    return false;
+                }
+                out = ": keep-alive\n\n"; // an SSE comment keeps the stream open without a data event
+                std::this_thread::sleep_for(std::chrono::seconds(15));
+                return !req.should_stop();
+            };
+            return res;
+        });
+    }
     ctx_http.post("/completion",               ex_wrapper(routes.post_completions)); // legacy
     ctx_http.post("/completions",              ex_wrapper(routes.post_completions));
     ctx_http.post("/v1/completions",           ex_wrapper(routes.post_completions_oai));

@@ -614,15 +614,16 @@ static std::string format_transcript(const std::vector<asr_segment> & segs, doub
     return out;
 }
 
-// auto: a video's audio goes to the timed transcript when --asr-url is set (more exact than Gemma4 native audio on compressed tracks); a standalone audio part stays native when the model has an audio encoder
+// auto: when the model has an audio encoder the audio stays native (the model's own hearing);
+// a speech-to-text transcript (--asr-url) is an opt-in replacement, selected per part with
+// audio "transcript" (or "both"), and is only the automatic fallback for a model without an
+// audio encoder. ASR is never forced onto a model that can hear on its own.
 static std::string resolve_audio_mode(const std::string & requested, double seconds, const server_media_config & cfg,
-                                      const std::string & what, bool with_video) {
+                                      const std::string & what) {
     std::string mode = requested;
     if (mode == "auto") {
         const bool native_ok = cfg.audio_native && seconds <= cfg.audio_native_max_s;
-        if (with_video && !cfg.asr_url.empty()) {
-            mode = "transcript";
-        } else if (native_ok) {
+        if (native_ok) {
             mode = "native";
         } else if (!cfg.asr_url.empty()) {
             mode = "transcript";
@@ -748,7 +749,7 @@ json server_media_video_part(const json & part, const server_media_config & cfg,
         SRV_INF("video: segment %s - %s -> %.1f MiB clip\n", fmt_hms(seg.start).c_str(), fmt_hms(seg.end).c_str(),
                 r.out.size() / 1048576.0);
 
-        const std::string mode = p.has_audio ? resolve_audio_mode(o.audio_mode, seg.length(), cfg, field, true) : "none";
+        const std::string mode = p.has_audio ? resolve_audio_mode(o.audio_mode, seg.length(), cfg, field) : "none";
         std::vector<uint8_t> wav;
         if (mode != "none") {
             wav = extract_audio_wav(src, seg, whole, cfg);
@@ -802,7 +803,7 @@ json server_media_audio_part(const json & part, const server_media_config & cfg,
     json out = json::array();
     for (size_t i = 0; i < o.segments.size(); i++) {
         const media_segment & seg = o.segments[i];
-        const std::string mode = resolve_audio_mode(o.audio_mode, seg.length(), cfg, field, false);
+        const std::string mode = resolve_audio_mode(o.audio_mode, seg.length(), cfg, field);
         if (mode == "none") {
             throw std::invalid_argument(field + ": this model has no audio encoder and no speech-to-text server is "
                                         "configured - start llama-server with --asr-url");

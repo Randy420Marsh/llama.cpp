@@ -169,3 +169,8 @@ _8080-restart.log.err
 tools/reasoning-bench/
 scripts/reasoning-bench*
 tools/reasoning-benchmark.py
+
+# speech-server: local training output and unsloth cache
+/tools/speech-server/smoke-lora/
+/tools/speech-server/unsloth_compiled_cache/
+/tools/asr-server/_restart_verify.sh
