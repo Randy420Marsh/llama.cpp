@@ -231,6 +231,10 @@ class Engine:
         self._model = None
         self.last_used = 0.0
         self._synth_lock = threading.Lock()
+        # the model the last request asked for: loading starts that one rather
+        # than default_model(), so a Q8_0 pick is not first loaded as Q4_K_M
+        # and then swapped (the swap used to cut off the request in between)
+        self.want_model = ""
 
     # -- to implement
     def voices(self) -> list[str]:
@@ -293,7 +297,7 @@ class Engine:
         with self._synth_lock:
             # "auto": for engines that understand them (emotion_tags), insert the
             # <laugh>/<sigh>/... the text implies; "off" leaves the text alone.
-            if self.emotion_tags and emotions != "off":
+            if self.emotion_tags and emotions != "off" and self.speaks_tags(voice or self.default_voice()):
                 import emotion_tags
                 text = emotion_tags.auto_emotion_tags(text)
             pcm, sr = self._synth(text, voice or self.default_voice(), speed, model, language)
@@ -301,6 +305,16 @@ class Engine:
         if not pcm:
             return silence()
         return wav_bytes(pcm, sr)
+
+    def speaks_tags(self, voice: str) -> bool:
+        """Does this voice understand emotion tags (only asked when emotion_tags)?"""
+        return True
+
+    def release(self):
+        """unload() once the sentence being spoken is finished: evicting an
+        engine mid-request killed its child server under that request."""
+        with self._synth_lock:
+            self.unload()
 
     def available(self) -> tuple[bool, str]:
         """Is the engine usable right now? (False, why-not) if not."""
@@ -758,7 +772,7 @@ class LlamaCppEngine(Engine):
         cls._proc = cls._proc_model = None
 
     def _load(self):
-        return {"url": self._ensure_server(self.default_model())}
+        return {"url": self._ensure_server(self.want_model or self.default_model())}
 
     def unload(self):
         if self.loaded:
@@ -779,18 +793,26 @@ class LlamaCppEngine(Engine):
         if lang in ("", "auto"):
             lang = guess_language(text, (lv or {}).get("language", "")) or "auto"
         body = json.dumps({"input": text, "voice": v, "language": lang}).encode()
-        rq = urllib.request.Request(url + "/v1/audio/speech", data=body,
-                                    headers={"Content-Type": "application/json"})
-        try:
-            with _urlopen(rq, 600) as r:
-                data = r.read()
-        except urllib.error.HTTPError as e:
+        for attempt in range(2):
+            rq = urllib.request.Request(url + "/v1/audio/speech", data=body,
+                                        headers={"Content-Type": "application/json"})
             try:
-                msg = json.loads(e.read()).get("error", {}).get("message", "")
-            except Exception:
-                msg = ""
-            raise RuntimeError(f"llama-tts-server HTTP {e.code}: {msg}") from e
-        return wav_to_pcm(data)
+                with _urlopen(rq, 600) as r:
+                    return wav_to_pcm(r.read())
+            except urllib.error.HTTPError as e:
+                try:
+                    msg = json.loads(e.read()).get("error", {}).get("message", "")
+                except Exception:
+                    msg = ""
+                raise RuntimeError(f"llama-tts-server HTTP {e.code}: {msg}") from e
+            except OSError as e:
+                # refused / reset: the child died or was swapped under us.
+                # Start it again (same model) and say the sentence once more
+                # rather than falling back to Piper for it.
+                if attempt:
+                    raise
+                print(f"[TTS] llama-tts-server dropped the request ({e}); restarting it", flush=True)
+                url = self._ensure_server(type(self)._proc_model or model or self.default_model())
 
 
 # ---------------------------------------------------------------- orpheus
@@ -982,6 +1004,30 @@ class OrpheusEngine(Engine):
         m = re.match(r"\s*([\w.-]+)\s*\[([^\]]+)\]\s*$", voice or "")
         return (m.group(1), m.group(2)) if m else ((voice or "tara").strip(), "")
 
+    def speaks_tags(self, voice: str) -> bool:
+        # Only the finetuned presets learned the tags. A cloned voice runs on the
+        # pretrained model, which reads "<laugh>" as text: WER 0.17 -> 0.47 when
+        # they were inserted into interjection-heavy chat replies.
+        return self.split_voice(voice)[0] in self.VOICES
+
+    @staticmethod
+    def _sentences(text: str) -> list[str]:
+        """The pretrained model, cloning, drifts on long mixed pieces: generate
+        sentence by sentence. Ellipses and spaced dashes become commas (they
+        set off minute-long drawls); fragments under 5 words join the next."""
+        text = re.sub(r"\s*(?:\.{2,}|\u2026)\s*", ", ", text)
+        text = re.sub(r"\s+[-\u2013\u2014]+\s+|\u2014", ", ", text)
+        text = re.sub(r",\s*([,.!?])", r"\1", text).strip(" ,")
+        out: list[str] = []
+        for s in re.split(r"(?<=[.!?])\s+", text):
+            if out and len(out[-1].split()) < 5:
+                out[-1] += " " + s
+            else:
+                out.append(s)
+        if len(out) > 1 and len(out[-1].split()) < 5:
+            out[-2] += " " + out.pop()
+        return [s for s in out if s.strip()]
+
     def available(self):
         missing = []
         for mod in ("torch", "snac"):
@@ -1141,8 +1187,7 @@ class OrpheusEngine(Engine):
                 + codes + [self.EOS, self.END_AI]
                 + [self.START_HUMAN] + tgt + [self.EOT, self.END_HUMAN, self.START_AI, self.START_AUDIO])
 
-    def _codes_via_llamacpp(self, url: str, ids: list[int], text: str,
-                            temperature: float = 0.6) -> list[int]:
+    def _codes_via_llamacpp(self, url: str, ids: list[int], text: str) -> list[int]:
         """Generate audio codes on a llama-server holding an Orpheus GGUF.
 
         The prompt is sent as raw token ids rather than a string: the special
@@ -1150,14 +1195,18 @@ class OrpheusEngine(Engine):
         server add its own BOS on top of the tokenizer's -- the double-BOS
         that makes Orpheus output garble.
         """
-        # Sampling as measured on an RTX 5090: 2.5-2.9 words/s at ~3x real time.
-        # A full-window repeat penalty halved the token rate for no gain, and the
-        # reference card's top_p 0.8 / penalty 1.3 sent cloned voices into
-        # minute-long drawls that ran to the limit.
+        # Sampling as HF generate() runs it in Canopy's examples: top_k 50, no
+        # min_p, the 1.1 penalty over the whole context. A/B on the pretrained
+        # Q6_K/Q8_0 cloning 3-6 voices (78 clips, whisper WER): llama-server's
+        # defaults (top_k 40, min_p 0.05, penalty over the last 64) looped 3
+        # times, this none, at the same ~0.3 RTF. The card's top_p 0.8 /
+        # penalty 1.3 sent cloned voices into minute-long drawls.
+        words = len(text.split())
         body = json.dumps({
-            "prompt": ids, "n_predict": min(2600, 200 + 75 * len(text.split())),
-            "temperature": temperature, "top_p": 0.95,
+            "prompt": ids, "n_predict": min(2600, 200 + 75 * words),
+            "temperature": 0.6, "top_p": 0.95, "top_k": 50, "min_p": 0.0,
             "repeat_penalty": 1.1,          # >=1.1 required for stable output
+            "repeat_last_n": 8192,          # the whole context (-1 is rejected)
             "cache_prompt": True, "stream": False,
         }).encode()
         codes: list[int] = []
@@ -1178,8 +1227,14 @@ class OrpheusEngine(Engine):
             codes = [t - 10 for t in toks if t >= 10]
             # No EOS within the budget means the model drifted into a drawl
             # (slow, stretched speech that fills the whole window): sample once more.
-            if not (doc.get("stop_type") == "limit" or doc.get("stopped_limit")) or attempt:
+            if not (doc.get("stop_type") == "limit" or doc.get("stopped_limit")):
                 break
+            if attempt:
+                # Twice without an end: keep what a slow reader would need
+                # (~82 codes a second, 1.3 words a second) and drop the drawl.
+                cap = int(82 * (1.5 + words / 1.3)) // 7 * 7
+                print(f"[TTS] orpheus looped twice; keeping {min(cap, len(codes)) / 82:.1f} s", flush=True)
+                return codes[:cap]
             print(f"[TTS] orpheus hit the {len(toks)}-token limit without ending; retrying", flush=True)
         return codes
 
@@ -1207,8 +1262,10 @@ class OrpheusEngine(Engine):
                     quant = next((q for q in ("pretrained-Q8_0", "pretrained-Q6_K",
                                               "pretrained-Q4_K_M") if q in pts), next(iter(pts), ""))
                 url = self._ensure_server(quant)
-                ids = self._clone_prompt(m, url, text, name)
-                codes = self._codes_via_llamacpp(url, ids, text, temperature=0.5)
+                codes = []
+                for s in self._sentences(text):     # the reference prefix stays cached
+                    c = self._codes_via_llamacpp(url, self._clone_prompt(m, url, s, name), s)
+                    codes += c[:len(c) // 7 * 7]    # whole frames, or the next is misaligned
             return self._decode_codes(codes, snac, dev)
 
         tok, lm = m["tok"], m["lm"]
@@ -1250,7 +1307,11 @@ class OrpheusEngine(Engine):
 
         layers = [torch.tensor(x, device=dev).unsqueeze(0) for x in (l1, l2, l3)]
         with torch.no_grad():
-            audio = snac.decode(layers)
+            audio = snac.decode(layers).squeeze().float().cpu().numpy()
+        # SNAC overshoots on plosives now and then: hold peaks to -1 dBFS.
+        peak = float(abs(audio).max()) if audio.size else 0.0
+        if peak > 0.89:
+            audio = audio * (0.89 / peak)
         return float_to_pcm16(audio), 24000
 
     def unload(self):
@@ -1269,14 +1330,16 @@ def get(name: str = "") -> Engine:
     return ENGINES.get(name or DEFAULT_ENGINE) or ENGINES["piper"]
 
 
-def select(name: str) -> Engine:
+def select(name: str, model: str = "") -> Engine:
     """Make `name` the resident GPU engine, evicting any other one."""
     eng = get(name)
+    if model:
+        eng.want_model = model
     with _lock:
         if eng.gpu:
             for other in ENGINES.values():
                 if other is not eng and other.gpu and other.loaded:
-                    other.unload()
+                    other.release()
         eng.load()
     return eng
 
@@ -1284,6 +1347,8 @@ def select(name: str) -> Engine:
 def synth_wav(text: str, voice: str = "", engine: str = "", speed: float = 1.0,
               model: str = "", language: str = "", emotions: str = "auto") -> bytes:
     eng = get(engine)
+    if model:
+        eng.want_model = model
     if eng.gpu and not eng.loaded:
         select(eng.name)
     return eng.synth_wav(text, voice, speed, model, language, emotions)
@@ -1294,7 +1359,7 @@ def unload_all() -> list[str]:
     for e in ENGINES.values():
         if e.loaded:
             freed.append(e.name)
-        e.unload()
+        e.release()
     return freed
 
 
@@ -1346,7 +1411,7 @@ def _idle_watch():
                 if e.gpu and e.loaded and e.last_used and now - e.last_used > IDLE_UNLOAD_S:
                     print(f"[TTS] {e.label} idle for {IDLE_UNLOAD_S:.0f} s -> unloading", flush=True)
                     with _lock:
-                        e.unload()
+                        e.release()
             except Exception as ex:
                 print(f"[TTS] idle unload of {e.name} failed: {ex}", flush=True)
 

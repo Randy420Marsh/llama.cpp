@@ -360,8 +360,14 @@ struct tts_engine {
             return -1;
         }
 
-        mtmd_helper::gen_audio gen(lctx, mctx.get());
-        mtmd_helper_gen_audio_inp inp{};
+        mtmd_helper::gen_audio gen;
+        gen.init(lctx, mctx.get());
+        if (!gen.valid()) {
+            err = "audio generator init failed";
+            common_sampler_free(smpl);
+            return -1;
+        }
+        mtmd_helper_gen_audio_inp inp = mtmd_helper_gen_audio_inp_default();
         inp.seq_id      = 0;
         inp.prompt      = text.c_str();
         inp.prompt_len  = text.size();

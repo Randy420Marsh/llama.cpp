@@ -806,6 +806,32 @@ export const SETTINGS_REGISTRY: SettingsSectionEntry[] = [
 				type: SettingsFieldType.CHECKBOX
 			},
 			{
+				defaultValue: false,
+				help: "Steer the input gain so speech lands near -20 dBFS (0.25x to 3x), backing off at once when it nears clipping. The browser's own gain control is off then. Moving the gain slider during a recording hands control back to you.",
+				key: SETTINGS_KEYS.MIC_AUTO_GAIN,
+				label: 'Mic auto-gain',
+				type: SettingsFieldType.CHECKBOX
+			},
+			{
+				defaultValue: true,
+				help: 'The speech threshold follows the measured background noise (fans, hum, what noise cancellation leaves) instead of a fixed -45 dBFS, so noise never counts as speech. Silence only counts after you have spoken; a recording with no speech is discarded rather than sent.',
+				key: SETTINGS_KEYS.MIC_VAD_ADAPTIVE,
+				label: 'Automatic speech threshold',
+				type: SettingsFieldType.CHECKBOX
+			},
+			{
+				defaultValue: 12,
+				dependsOn: SETTINGS_KEYS.MIC_VAD_ADAPTIVE,
+				help: 'How far above the background noise your voice must be to count as speech (dB). Raise it if noise still starts or holds a recording; lower it for a quiet voice.',
+				isPositiveInteger: true,
+				key: SETTINGS_KEYS.MIC_VAD_MARGIN_DB,
+				label: 'Speech threshold above noise (dB)',
+				max: 24,
+				min: 6,
+				step: 1,
+				type: SettingsFieldType.SLIDER
+			},
+			{
 				defaultValue: true,
 				help: 'Automatically stop the recording after the silence timeout below.',
 				key: SETTINGS_KEYS.MIC_AUTO_STOP,

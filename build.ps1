@@ -1,5 +1,5 @@
 # ===== llama.cpp build with this fork's web UI (Windows) =====
-# Builds build\bin\Release\llama-server.exe and the tools, with the web UI built from
+# Builds build\bin\Release\llama-server.exe, llama-tts-server.exe and the tools, with the web UI built from
 # tools\ui (voice, TTS and STT settings), never the upstream UI from the Hugging Face bucket.
 #   .\build.ps1             incremental build      (or: build.bat)
 #   .\build.ps1 -Clean      delete build\ first
@@ -20,6 +20,10 @@ $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
 $NodeVersion = "v24.21.0"
+# The binaries Aegis and tools\speech-server start: llama-server (LLM engine, Orpheus),
+# llama-tts-server (Qwen3-TTS engine), llama-quantize (train_orpheus.py), and the CLIs
+# used for tests. The build ends with an error when one of them is missing.
+$Required = @("llama-server", "llama-tts-server", "llama-tts", "llama-mtmd-cli", "llama-cli", "llama-bench", "llama-quantize")
 function Die($message) { Write-Host "[ERROR] $message" -ForegroundColor Red; exit 1 }
 if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) { Die "cmake not found" }
 
@@ -90,13 +94,26 @@ if (Test-Path tools\ui\dist) { Remove-Item -Recurse -Force tools\ui\dist }
 cmake -B build -G $Generator -DLLAMA_BUILD_UI=ON -DLLAMA_USE_PREBUILT_UI=OFF -DLLAMA_OPENSSL=ON @cudaArgs @sslArgs
 if ($LASTEXITCODE) { Die "cmake configure failed" }
 cmake --build build --config Release --parallel
-if ($LASTEXITCODE) { Die "build failed" }
+if ($LASTEXITCODE) {
+    # an unused example must not block the engines: rebuild the required targets alone,
+    # the check below still fails if one of them does not compile
+    Write-Host "[Warn] full build failed; retrying the required targets: $($Required -join ' ')" -ForegroundColor Yellow
+    cmake --build build --config Release --parallel --target @Required
+}
 
 # ===== Check what was built
+$missing = @($Required | Where-Object { -not (Test-Path "build\bin\Release\$_.exe") })
+foreach ($t in $Required) {
+    if ($missing -contains $t) { Write-Host "MISSING: build\bin\Release\$t.exe" -ForegroundColor Red }
+    else { Write-Host "ok: build\bin\Release\$t.exe" }
+}
+if ($missing.Count) {
+    Die "$($missing.Count) required binary(ies) did not build: $($missing -join ' ') (see the compiler errors above, or: cmake --build build --config Release --target $($missing[0]))"
+}
 $voice = Get-ChildItem build\tools\ui\dist -Recurse -File -ErrorAction SilentlyContinue |
     Select-String -Pattern ttsVoice -List | Select-Object -First 1
 if (-not $voice) { Die "the embedded web UI has no voice settings: the UI build failed (see 'UI:' lines above)" }
 if (-not (& build\bin\Release\llama-server.exe --help 2>$null | Select-String -- "--asr-url")) {
     Die "build\bin\Release\llama-server.exe has no --asr-url option"
 }
-Write-Host "[OK] build\bin\Release\llama-server.exe with this fork's web UI (voice, TTS, STT settings)" -ForegroundColor Green
+Write-Host "[OK] build\bin\Release: $($Required -join ', '); llama-server.exe with this fork's web UI (voice, TTS, STT settings)" -ForegroundColor Green

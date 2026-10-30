@@ -31,11 +31,39 @@ export interface AudioRecorderOptions {
 	noiseCancelling?: boolean;
 	/** Called ~20x/sec with the input level meter data while recording. */
 	onLevel?: (sample: MicLevelSample) => void;
-	/** Called once when the silence timeout elapses (voice activity detection auto-stop). */
-	onAutoStop?: () => void;
+	/**
+	 * Called once when the silence timeout elapses (voice activity detection auto-stop).
+	 * `heardSpeech` is false when nothing above the threshold was heard at all: the
+	 * recording then holds only room noise, which whisper turns into made-up words.
+	 */
+	onAutoStop?: (heardSpeech: boolean) => void;
 	/** Silence (ms) that triggers onAutoStop. Default 5000. */
 	autoStopSilenceMs?: number;
+	/**
+	 * Speech threshold follows the measured noise floor (floor + vadMarginDb) instead of
+	 * the fixed -45 dBFS, so fans, hum or what noise suppression leaves never count as speech.
+	 * Default true.
+	 */
+	adaptiveThreshold?: boolean;
+	/** How far above the noise floor speech must be, in dB (adaptive threshold). Default 12. */
+	vadMarginDb?: number;
+	/**
+	 * Steer the gain so speech lands near -20 dBFS (0.25x..3x, backing off fast on clipping).
+	 * The browser's own AGC is turned off then, so the two do not fight. Default false.
+	 */
+	autoGain?: boolean;
 }
+
+/** Fixed speech threshold (dBFS) used when the adaptive threshold is off. */
+const VAD_FIXED_DB = -45;
+/** The adaptive threshold never goes below this: digital silence would make any click speech. */
+const VAD_MIN_DB = -55;
+/** Consecutive 50 ms ticks above the threshold that count as speech onset. */
+const VAD_ONSET_TICKS = 4;
+/** Auto-gain target speech level (dBFS) and gain range. */
+const AGC_TARGET_DB = -20;
+const AGC_MIN_GAIN = 0.25;
+const AGC_MAX_GAIN = 3;
 
 export class AudioRecorder {
 	private analyser: AnalyserNode | null = null;
@@ -44,12 +72,18 @@ export class AudioRecorder {
 	private destStream: MediaStream | null = null;
 	private gain = 1;
 	private gainNode: GainNode | null = null;
+	/** Speech onset seen in this recording (see VAD_ONSET_TICKS). */
+	private heardSpeech = false;
 	private lastSpeechTime = 0;
 	private mediaRecorder: MediaRecorder | null = null;
 	private meterData: Float32Array<ArrayBuffer> | null = null;
 	private meterTimer: number | null = null;
+	/** Estimated noise floor (dBFS, before our gain); null until the first tick. */
+	private noiseFloorDb: number | null = null;
+	private onsetTicks = 0;
 	private options: AudioRecorderOptions = {};
 	private peakLevel = 0;
+	private recordingStart = 0;
 	private recordingState: boolean = false;
 	private stream: MediaStream | null = null;
 
@@ -77,6 +111,11 @@ export class AudioRecorder {
 		}
 	}
 
+	/** True once speech (not just noise) was heard in the current recording. */
+	hasHeardSpeech(): boolean {
+		return this.heardSpeech;
+	}
+
 	isRecording(): boolean {
 		return this.recordingState;
 	}
@@ -84,6 +123,8 @@ export class AudioRecorder {
 	/** Live input gain, applied to an in-flight recording without restarting it. */
 	setGain(gain: number): void {
 		this.gain = gain;
+		// a hand-set gain wins over auto-gain for the rest of this recording
+		this.options.autoGain = false;
 
 		if (this.gainNode && this.audioContext) {
 			this.gainNode.gain.setTargetAtTime(gain, this.audioContext.currentTime, 0.05);
@@ -119,8 +160,8 @@ export class AudioRecorder {
 			this.stream = await navigator.mediaDevices.getUserMedia({
 				audio: {
 					// Leave AGC to the OS when no explicit gain is requested; an explicit gain
-					// goes through our own GainNode instead, so AGC would fight it.
-					autoGainControl: gain === 1,
+					// or our own auto-gain goes through the GainNode instead, so AGC would fight it.
+					autoGainControl: gain === 1 && !options.autoGain,
 					echoCancellation: true,
 					noiseSuppression: nr
 				}
@@ -296,7 +337,11 @@ export class AudioRecorder {
 
 		this.meterData = new Float32Array(this.analyser.fftSize);
 		this.peakLevel = 0;
-		this.lastSpeechTime = performance.now();
+		this.heardSpeech = false;
+		this.noiseFloorDb = null;
+		this.onsetTicks = 0;
+		this.recordingStart = performance.now();
+		this.lastSpeechTime = this.recordingStart;
 
 		this.meterTimer = window.setInterval(() => this.updateMeter(), 50);
 	}
@@ -312,9 +357,11 @@ export class AudioRecorder {
 		analyser.getFloatTimeDomainData(data);
 
 		let sum = 0;
+		let samplePeak = 0;
 
 		for (let i = 0; i < data.length; i += 1) {
 			sum += data[i] * data[i];
+			samplePeak = Math.max(samplePeak, Math.abs(data[i]));
 		}
 
 		const rms = Math.sqrt(sum / data.length);
@@ -330,20 +377,89 @@ export class AudioRecorder {
 
 		this.options.onLevel?.({ clip: this.peakLevel >= 0.99, level, peak: this.peakLevel });
 
-		// Voice activity detection: stop automatically after the configured silence.
+		this.detectVoice(rms, samplePeak);
+	}
+
+	/**
+	 * Voice activity detection on the 50 ms meter tick: speech is a level above the
+	 * threshold for VAD_ONSET_TICKS ticks in a row. Silence only counts once speech was
+	 * heard, so noise alone never ends (and auto-sends) a recording before you spoke;
+	 * with no speech at all it ends after twice the silence timeout, flagged as empty.
+	 */
+	private detectVoice(rms: number, samplePeak: number): void {
+		const gain = this.gainNode?.gain.value ?? 1;
+
+		if (gain <= 0) {
+			return; // muted: nothing to measure
+		}
+
+		// level before our gain, so a gain change does not move the noise floor
+		const db = 20 * Math.log10(Math.max(rms, 1e-6)) - 20 * Math.log10(gain);
+		const adaptive = this.options.adaptiveThreshold !== false;
+		const margin = this.options.vadMarginDb ?? 12;
+
+		if (this.noiseFloorDb === null) {
+			this.noiseFloorDb = db;
+		}
+
+		const threshold = adaptive
+			? Math.max(VAD_MIN_DB, this.noiseFloorDb + margin)
+			: VAD_FIXED_DB - 20 * Math.log10(gain);
+		const loud = db > threshold;
+
+		// Floor: falls fast to any quieter level, rises slowly (~10 s) and only
+		// between words, so speech never lifts it but a fan switched on does.
+		if (db < this.noiseFloorDb) {
+			this.noiseFloorDb += (db - this.noiseFloorDb) * 0.3;
+		} else if (!loud) {
+			this.noiseFloorDb += (db - this.noiseFloorDb) * 0.005;
+		}
+
+		this.onsetTicks = loud ? this.onsetTicks + 1 : 0;
+
 		const now = performance.now();
 
-		if (db > -45) {
+		if (loud && (this.heardSpeech || this.onsetTicks >= VAD_ONSET_TICKS)) {
+			this.heardSpeech = true;
 			this.lastSpeechTime = now;
-		} else if (
-			this.options.onAutoStop &&
-			now - this.lastSpeechTime >= (this.options.autoStopSilenceMs ?? 5000)
-		) {
-			const onAutoStop = this.options.onAutoStop;
 
-			this.options.onAutoStop = undefined;
-			onAutoStop();
+			if (this.options.autoGain) {
+				this.steerGain(db, samplePeak, gain);
+			}
 		}
+
+		const onAutoStop = this.options.onAutoStop;
+		const silenceMs = this.options.autoStopSilenceMs ?? 5000;
+
+		if (!onAutoStop || loud) {
+			return;
+		}
+
+		const timedOut = this.heardSpeech
+			? now - this.lastSpeechTime >= silenceMs
+			: now - this.recordingStart >= 2 * silenceMs;
+
+		if (timedOut) {
+			this.options.onAutoStop = undefined;
+			onAutoStop(this.heardSpeech);
+		}
+	}
+
+	/** Move the gain toward AGC_TARGET_DB while speaking; drop 3 dB at once on a near-clip. */
+	private steerGain(rawDb: number, samplePeak: number, gain: number): void {
+		if (!this.gainNode || !this.audioContext) {
+			return;
+		}
+
+		let next = gain * Math.pow(10, (AGC_TARGET_DB - (rawDb + 20 * Math.log10(gain))) / 20 / 40);
+
+		if (samplePeak > 0.9) {
+			next = gain * 0.7;
+		}
+
+		next = Math.min(AGC_MAX_GAIN, Math.max(AGC_MIN_GAIN, next));
+		this.gain = next;
+		this.gainNode.gain.setTargetAtTime(next, this.audioContext.currentTime, 0.1);
 	}
 }
 

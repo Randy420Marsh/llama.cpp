@@ -14,8 +14,16 @@
 #     JOBS=16                  parallel build jobs (default: all cores)
 #     KEEP_BUILD=1             don't wipe the existing build/ before configuring
 #
+# The build is clean (build/ wiped) by default and ends with an error when any of
+# REQUIRED below is missing, so a tool that stops compiling cannot go unnoticed.
+#
 set -euo pipefail
 cd "$(dirname "$0")"
+
+# The binaries Aegis and tools/speech-server start: llama-server (LLM engine, Orpheus),
+# llama-tts-server (Qwen3-TTS engine), llama-quantize (train_orpheus.py), and the CLIs
+# used for tests. The speech tools only exist on the video-audio-pipeline branch.
+REQUIRED=(llama-server llama-tts-server llama-tts llama-mtmd-cli llama-cli llama-bench llama-quantize)
 
 # -----------------------------------------------------------------------------
 # 1) Pick a CUDA toolkit (nvcc + lib64).
@@ -91,12 +99,12 @@ cmake -B build \
 
 echo "Building (cmake, $JOBS jobs) ..."
 if ! cmake --build build --config Release --parallel "$JOBS"; then
-    # A hiccup in the embedded web UI (npm/HF download of llama-ui) must not block the
-    # engines Aegis starts. Rebuild the engine targets alone.
+    # A hiccup in the embedded web UI (npm/HF download of llama-ui) or an unused example
+    # must not block the engines Aegis starts. Rebuild the required targets alone; the
+    # check below still fails if one of them does not compile.
     echo
-    echo "Full build failed; retrying the engine targets (llama-server and friends) ..."
-    cmake --build build --config Release --parallel "$JOBS" \
-        --target llama-server llama-bench llama-quantize llama-cli
+    echo "Full build failed; retrying the required targets: ${REQUIRED[*]} ..."
+    cmake --build build --config Release --parallel "$JOBS" --target "${REQUIRED[@]}" || true
 fi
 
 # -----------------------------------------------------------------------------
@@ -104,11 +112,25 @@ fi
 # -----------------------------------------------------------------------------
 echo
 echo "=== built ==="
-ls -la build/bin/llama-server 2>/dev/null || echo "(no llama-server in build/bin)"
-# the speech tools only exist on the video-audio-pipeline branch, not plain master
-for t in build/bin/llama-server build/bin/llama-bench; do
-    [ -x "$t" ] && echo "ok: $t"
+missing=()
+for t in "${REQUIRED[@]}"; do
+    if [ -x "build/bin/$t" ]; then
+        echo "ok: build/bin/$t"
+    else
+        echo "MISSING: build/bin/$t" >&2
+        missing+=("$t")
+    fi
 done
+if [ ${#missing[@]} -gt 0 ]; then
+    echo >&2
+    echo "ERROR: ${#missing[@]} required binary(ies) did not build: ${missing[*]}" >&2
+    echo "  see the compiler errors above, or rebuild one: cmake --build build --target ${missing[0]}" >&2
+    exit 1
+fi
+if ! ./build/bin/llama-server --help 2>/dev/null | grep -q -- --asr-url; then
+    echo "ERROR: build/bin/llama-server has no --asr-url option (not this fork's server)" >&2
+    exit 1
+fi
 echo
 echo "Done. Test the router (loads a model, needs a GGUF path):"
 echo "  The presets come from ProjectAegis, not llama.cpp. If you have ProjectAegis, use its"

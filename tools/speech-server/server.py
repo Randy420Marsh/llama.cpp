@@ -25,7 +25,7 @@ API
     GET  /api/status                      engines, speech-to-text, folders, port
     POST /v1/audio/speech                 {input, engine, voice, model, language, speed} -> WAV
     GET  /api/tts/engines                 engines with their voices and models
-    POST /api/tts/select | /api/tts/unload   load one engine / free VRAM
+    POST /api/tts/select | /api/tts/unload   load one engine ({engine, model?}) / free VRAM
     GET  /api/voices/library              your voices
     POST /api/voices/library              multipart: name, file, transcript?, language?
     GET  /api/voices/library/{id}/audio   the reference clip
@@ -188,7 +188,7 @@ async def api_tts_select(req: Request):
     body = await req.json()
     name = body.get("engine") or "piper"
     try:
-        e = await _run(tts_engines.select, name)
+        e = await _run(tts_engines.select, name, (body.get("model") or "").strip())
         return {"ok": True, "engine": e.name, "loaded": e.loaded}
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "message": str(e)})
@@ -203,7 +203,7 @@ async def api_tts_unload(req: Request):
         body = {}
     name = (body.get("engine") or "").strip()
     if name and name != "stt":
-        tts_engines.get(name).unload()
+        tts_engines.get(name).release()
         freed = [name]
     elif not name:
         freed = tts_engines.unload_all()

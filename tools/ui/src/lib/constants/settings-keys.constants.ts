@@ -44,6 +44,7 @@ export const SETTINGS_KEYS = {
 	MCP_SERVERS: 'mcpServers',
 	MENTION_SEARCH_MAX_DEPTH: 'mentionSearchMaxDepth',
 	// Mic / voice capture
+	MIC_AUTO_GAIN: 'micAutoGain',
 	MIC_AUTO_SEND: 'micAutoSend',
 	MIC_AUTO_STOP: 'micAutoStop',
 	MIC_AUTO_STOP_SILENCE_MS: 'micAutoStopSilenceMs',
@@ -55,6 +56,9 @@ export const SETTINGS_KEYS = {
 	// Language passed to the STT server when transcribing voice input (ISO code,
 	// e.g. 'en'; blank = auto-detect)
 	MIC_STT_LANGUAGE: 'micSttLanguage',
+	// Speech threshold follows the noise floor (true) or is fixed at -45 dBFS
+	MIC_VAD_ADAPTIVE: 'micVadAdaptive',
+	MIC_VAD_MARGIN_DB: 'micVadMarginDb',
 	MIN_P: 'min_p',
 	// Display
 	PASTE_LONG_TEXT_TO_FILE_LEN: 'pasteLongTextToFileLen',

@@ -548,16 +548,25 @@
 			const cfg = settingsStore.config;
 
 			await audioRecorder.startRecording({
+				adaptiveThreshold: cfg[SETTINGS_KEYS.MIC_VAD_ADAPTIVE] !== false,
+				autoGain: Boolean(cfg[SETTINGS_KEYS.MIC_AUTO_GAIN]),
 				autoStopSilenceMs: Number(cfg[SETTINGS_KEYS.MIC_AUTO_STOP_SILENCE_MS]) || 5000,
 				gain: Number(cfg[SETTINGS_KEYS.MIC_GAIN] ?? 1) || 1,
 				noiseCancelling: Boolean(cfg[SETTINGS_KEYS.MIC_NOISE_CANCELLING]),
 				// Wire the VAD auto-stop only when the setting is on, so a
 				// manual click-stop recording is never cut short by silence.
 				onAutoStop: cfg[SETTINGS_KEYS.MIC_AUTO_STOP]
-					? () => {
-							void finishRecording();
+					? (heardSpeech) => {
+							if (heardSpeech) {
+								void finishRecording();
+							} else {
+								// only room noise: whisper would invent words from it
+								cancelRecording();
+								toast.info('No speech heard; the recording was discarded');
+							}
 						}
 					: undefined,
+				vadMarginDb: Number(cfg[SETTINGS_KEYS.MIC_VAD_MARGIN_DB]) || 12,
 				onLevel: (sample) => {
 					micLevel = sample.level;
 					micPeak = sample.peak;
@@ -570,6 +579,14 @@
 		}
 	}
 
+	function cancelRecording() {
+		audioRecorder?.cancelRecording();
+		isRecording = false;
+		micLevel = 0;
+		micPeak = 0;
+		micClip = false;
+	}
+
 	async function finishRecording() {
 		if (!audioRecorder || isFinishingRecording) return;
 
@@ -580,6 +597,9 @@
 		micClip = false;
 
 		try {
+			// read before stopping: a manual stop of a noise-only recording still
+			// transcribes, but is never sent on its own
+			const heardSpeech = audioRecorder.hasHeardSpeech();
 			const audioBlob = await audioRecorder.stopRecording();
 			const wavBlob = await convertToWav(audioBlob);
 			const cfg = settingsStore.config;
@@ -661,7 +681,7 @@
 				await tick();
 			}
 
-			if (autoSend && (heard || attach)) {
+			if (autoSend && heardSpeech && (heard || attach)) {
 				// The send path (ChatScreenForm.handleSubmit) guards on
 				// hasLoadingAttachments, so wait for the WAV to finish
 				// processing before triggering the submit.
