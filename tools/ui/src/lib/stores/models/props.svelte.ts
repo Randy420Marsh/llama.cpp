@@ -10,16 +10,22 @@
  * In ROUTER mode, `/props` has no modalities - must use `/props?model=<id>` per model.
  */
 
-import { MODEL_PROPS_CACHE } from '$lib/constants';
-import { FileTypeCategory, ModelModality } from '$lib/enums';
+import {
+	MODEL_PROPS_CACHE,
+	REASONING_EFFORT_BASE_LEVELS,
+	REASONING_EFFORT_BUDGET_LEVELS,
+	REASONING_EFFORT_LABELS
+} from '$lib/constants';
+import { FileTypeCategory, ModelModality, ReasoningEffort } from '$lib/enums';
 import { PropsService } from '$lib/services/props.service';
 // direct imports between stores, not via the barrel, to avoid circular deps
 import { serverStore } from '$lib/stores/server.svelte';
+import type { ReasoningEffortLevel } from '$lib/types';
 // deep imports, not the '$lib/utils' barrel: it re-exports modules that reach back
 // into the stores, and going through it here would read a half-built module
 import { TTLCache } from '$lib/utils/cache-ttl';
 import { detectThinkingSupport } from '$lib/utils/chat-template-thinking-detector';
-import { SvelteSet } from 'svelte/reactivity';
+import { SvelteMap } from 'svelte/reactivity';
 
 /**
  * The slice of modelsStore the manager reads. Kept narrow on purpose so it
@@ -45,7 +51,8 @@ export class ModelPropsManager {
 		maxEntries: MODEL_PROPS_CACHE.MAX_ENTRIES,
 		ttlMs: MODEL_PROPS_CACHE.TTL_MS
 	});
-	private fetching = new SvelteSet<string>();
+	/** Props requests in flight, a second caller awaits the same request. */
+	private fetching = new SvelteMap<string, Promise<ApiLlamaCppServerProps | null>>();
 
 	/**
 	 * Whether the selected model's chat template supports thinking/reasoning.
@@ -173,24 +180,27 @@ export class ModelPropsManager {
 			return null;
 		}
 
-		if (this.fetching.has(modelId)) return null;
+		const inFlight = this.fetching.get(modelId);
 
-		this.fetching.add(modelId);
+		if (inFlight) return inFlight;
 
-		try {
-			const props = await PropsService.fetchForModel(modelId);
+		const request = PropsService.fetchForModel(modelId)
+			.then((props) => {
+				this.cache.set(modelId, props);
+				this.cacheVersion++;
 
-			this.cache.set(modelId, props);
-			this.cacheVersion++;
+				return props;
+			})
+			.catch((error) => {
+				console.warn(`Failed to fetch props for model ${modelId}:`, error);
 
-			return props;
-		} catch (error) {
-			console.warn(`Failed to fetch props for model ${modelId}:`, error);
+				return null;
+			})
+			.finally(() => this.fetching.delete(modelId));
 
-			return null;
-		} finally {
-			this.fetching.delete(modelId);
-		}
+		this.fetching.set(modelId, request);
+
+		return request;
 	}
 
 	/**
@@ -262,20 +272,38 @@ export class ModelPropsManager {
 	}
 
 	/**
-	 * Reasoning effort levels the model's template accepts (server /props
-	 * `reasoning_efforts`, without "none": Off covers it). [] when the model has
-	 * none, or in router mode before its props are cached.
+	 * Reasoning effort levels the model's chat template honors, from lowest to highest.
+	 * Empty when the template honors none, the menu then maps its levels to token budgets.
+	 * In ROUTER mode, fetches model props if not cached.
 	 */
-	getReasoningEfforts(modelId?: string | null): string[] {
-		void this.cacheVersion;
+	getReasoningEfforts(modelId: string): ReasoningEffort[] {
+		let props: ApiLlamaCppServerProps | null = serverStore.props;
 
-		const props = !serverStore.isRouterMode
-			? serverStore.props
-			: modelId
-				? this.getModelProps(modelId)
-				: null;
+		if (serverStore.isRouterMode) {
+			if (!modelId) return [];
 
-		return (props?.reasoning_efforts ?? []).filter((level: string) => level !== 'none');
+			if (!this.cache.get(modelId)) {
+				this.fetchModelProps(modelId);
+			}
+
+			props = this.getModelProps(modelId);
+		}
+
+		const levels: string[] = props?.chat_template_caps?.reasoning_effort_levels ?? [];
+
+		return levels.filter((level): level is ReasoningEffort => level in REASONING_EFFORT_LABELS);
+	}
+
+	/** Reasoning menu of the model: the template levels, or the token budget levels. */
+	getReasoningLevels(modelId: string): ReasoningEffortLevel[] {
+		const efforts = this.getReasoningEfforts(modelId);
+
+		if (efforts.length === 0) return REASONING_EFFORT_BUDGET_LEVELS;
+
+		return [
+			...REASONING_EFFORT_BASE_LEVELS,
+			...efforts.map((value) => ({ label: REASONING_EFFORT_LABELS[value], value }))
+		];
 	}
 
 	/** llama-server transcribes with its --asr-url whisper (POST /asr/transcribe); null = unknown */
@@ -313,6 +341,13 @@ export class ModelPropsManager {
 
 	modelSupportsVision(modelId: string): boolean {
 		return this.getModelModalities(modelId)?.vision ?? false;
+	}
+
+	/** The effort as the model's menu offers it, DEFAULT when the menu lacks it. */
+	resolveReasoningEffort(modelId: string, effort: ReasoningEffort): ReasoningEffort {
+		return this.getReasoningLevels(modelId).some((level) => level.value === effort)
+			? effort
+			: ReasoningEffort.DEFAULT;
 	}
 
 	/**

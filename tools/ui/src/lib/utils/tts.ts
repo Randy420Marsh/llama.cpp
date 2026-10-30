@@ -374,9 +374,9 @@ export async function synthesize(
 	try {
 		response = await fetch(`${base}/v1/audio/speech`, {
 			...json({
+				emotions: req.emotions || undefined,
 				engine: req.engine || undefined,
 				input: text,
-				emotions: req.emotions || undefined,
 				language: req.language || undefined,
 				model: req.model || undefined,
 				speed: typeof req.speed === 'number' ? req.speed : 1,

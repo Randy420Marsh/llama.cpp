@@ -6,7 +6,8 @@
 		SettingsChatImportExportTab,
 		SettingsChatMobileHeader,
 		SettingsChatToolsTab,
-		SettingsFooter
+		SettingsFooter,
+		SettingsResetButton
 	} from '$lib/components/app/settings';
 	import SettingsVoice from '$lib/components/app/settings/SettingsChat/SettingsVoice.svelte';
 	import { Button } from '$lib/components/ui/button';
@@ -48,6 +49,20 @@
 	);
 
 	let localConfig: SettingsConfigType = $state({ ...settingsStore.config });
+
+	// inputs hand back strings for numeric fields, so compare stringified values
+	let hasChanges = $derived.by(() => {
+		const saved = settingsStore.config;
+		const keys = new Set([...Object.keys(saved), ...Object.keys(localConfig)]);
+
+		for (const key of keys) {
+			if (String(localConfig[key] ?? '') !== String(saved[key] ?? '')) {
+				return true;
+			}
+		}
+
+		return false;
+	});
 
 	let mobileHeader: { updateCarousel: () => void } | undefined;
 
@@ -169,7 +184,9 @@
 							/>
 
 							{#if currentSection.slug === SETTINGS_SECTION_SLUGS.GENERAL}
-								<div class="flex justify-end">
+								<div class="flex justify-end gap-2">
+									<SettingsResetButton onReset={handleReset} />
+
 									<Button onclick={() => window.location.reload()} variant="outline">
 										<RefreshCw class="h-3 w-3" />
 										Reload app
@@ -184,12 +201,12 @@
 					{/if}
 				</div>
 
-				<div class="mt-8 border-t border-border/30 pt-6">
+				<div class="mt-8 border-t border-border/30 pt-6 pb-6">
 					<p class="text-xs text-muted-foreground">Settings are saved in browser's localStorage</p>
 				</div>
 			</div>
 
-			<SettingsFooter onReset={handleReset} onSave={handleSave} />
+			<SettingsFooter {hasChanges} onSave={handleSave} />
 		</div>
 	</div>
 </div>

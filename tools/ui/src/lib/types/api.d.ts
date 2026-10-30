@@ -288,7 +288,10 @@ export interface ApiLlamaCppServerProps {
 		video: boolean;
 	};
 	chat_template: string;
-	chat_template_caps?: Record<string, boolean>;
+	chat_template_caps?: {
+		/** reasoning_effort values the chat template renders distinctly, from lowest to highest */
+		reasoning_effort_levels?: string[];
+	};
 	/** fork: reasoning_effort values the template accepts, ladder order; [] = none */
 	reasoning_efforts?: string[];
 	/** fork: the level a request without reasoning_effort runs at ('' = unknown) */

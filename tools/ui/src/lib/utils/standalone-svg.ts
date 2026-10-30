@@ -8,11 +8,11 @@
 
 const VOID_TAG_RE =
 	/<(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)(\s[^<>]*)?\/?>/gi;
-
 const XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8"?>\n';
 
 export function toStandaloneSvg(svgHtml: string): string {
 	const trimmed = svgHtml.trim();
+
 	if (!trimmed) return '';
 
 	const selfClosed = trimmed.replace(VOID_TAG_RE, (match) =>
@@ -20,5 +20,6 @@ export function toStandaloneSvg(svgHtml: string): string {
 	);
 
 	if (selfClosed.startsWith('<?xml')) return selfClosed;
+
 	return XML_DECLARATION + selfClosed;
 }

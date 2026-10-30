@@ -19,12 +19,10 @@
 	import Label from '$lib/components/ui/label/label.svelte';
 	import { Switch } from '$lib/components/ui/switch';
 	import { getChatMessageActionsContext, getChatMessageEditContext } from '$lib/contexts';
-	import { MessageRole } from '$lib/enums';
 	import { conversationsStore, speechStore } from '$lib/stores';
 	import { onMount } from 'svelte';
 
 	interface Props {
-		role: MessageRole.USER | MessageRole.ASSISTANT;
 		justify: 'start' | 'end';
 		actionsPosition: 'left' | 'right';
 		/** Message id and markdown source, for the read-aloud button. */
@@ -45,7 +43,6 @@
 		onRawOutputToggle,
 		onRegenerate,
 		rawOutputEnabled = false,
-		role,
 		showRawOutputSwitch = false,
 		text = ''
 	}: Props = $props();
@@ -81,12 +78,11 @@
 	// ---- read aloud (speech server, Settings -> Voice) ----
 	// shown only when the speech server answers; a second click stops reading
 	let speaking = $derived(messageId !== '' && speechStore.speakingId === messageId);
-	let canReadAloud = $derived(
-		role === MessageRole.ASSISTANT && text.trim().length > 0 && speechStore.available
-	);
+	let canReadAloud = $derived(text.trim().length > 0 && speechStore.available);
 
 	onMount(() => {
-		if (role === MessageRole.ASSISTANT) speechStore.ensureFresh();
+		// only an assistant reply hands its text in
+		if (text) speechStore.ensureFresh();
 	});
 </script>
 
@@ -107,7 +103,7 @@
 
 			<ActionIcon icon={Edit} onclick={editCtx.startEdit} tooltip="Edit" />
 
-			{#if role === MessageRole.ASSISTANT && onRegenerate}
+			{#if onRegenerate}
 				<ActionIcon icon={RefreshCw} onclick={() => onRegenerate()} tooltip="Regenerate" />
 			{/if}
 
@@ -123,7 +119,7 @@
 				/>
 			{/if}
 
-			{#if role === MessageRole.ASSISTANT && onContinue}
+			{#if onContinue}
 				<ActionIcon icon={ArrowRight} onclick={onContinue} tooltip="Continue" />
 			{/if}
 
